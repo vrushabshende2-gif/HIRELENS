@@ -262,8 +262,22 @@ def start(request):
             .select_related("drive__position")
             .get(pk=invite.pk)
         )
-        if invite.redeemed_at:
-            interview = get_object_or_404(Interview, invitation=invite, candidate=request.user)
+        # A demo link may be regenerated after a candidate has already begun.
+        # The invitation flag can be stale in that case, but the one-to-one
+        # Interview row is authoritative and must be resumed instead of
+        # attempting a second insert.
+        existing = (
+            Interview.objects.select_for_update()
+            .filter(invitation=invite)
+            .first()
+        )
+        if existing:
+            if existing.candidate_id != request.user.pk:
+                raise PermissionDenied("This invitation belongs to a different candidate account.")
+            if not invite.redeemed_at:
+                invite.redeemed_at = existing.created_at
+                invite.save(update_fields=["redeemed_at"])
+            interview = existing
             return Response({"id": str(interview.pk), "resumed": True})
         if not configured():
             raise Unavailable(

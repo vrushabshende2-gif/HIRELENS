@@ -488,7 +488,6 @@ def demo_candidate_access(request, pk):
             "name": "Demo Candidate",
             "token_hash": digest(token),
             "expires_at": drive.expires_at,
-            "redeemed_at": None,
         },
     )
     audit(request, "demo_candidate_access_created", invitation.pk)

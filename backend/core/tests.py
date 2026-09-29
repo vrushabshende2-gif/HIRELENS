@@ -417,6 +417,42 @@ class HireLensTests(TestCase):
             409,
         )
 
+    def test_start_resumes_existing_interview_when_redemption_flag_is_stale(self):
+        self.login(self.candidate)
+        invitation, token = self.invite()
+        self.tab = uuid.uuid4()
+        WorkerStatus.objects.create(name="primary")
+        with patch.dict(os.environ, {"GEMINI_API_KEY": "test-not-a-real-api-key"}):
+            first = self.post(
+                "/api/interviews/start/",
+                {
+                    "token": token,
+                    "tab_id": str(self.tab),
+                    "consent": True,
+                    "demo_acknowledged": True,
+                },
+            )
+        self.assertEqual(first.status_code, 201, first.data)
+        interview = Interview.objects.get(pk=first.data["id"])
+        invitation.redeemed_at = None
+        invitation.save(update_fields=["redeemed_at"])
+        self.tab = uuid.uuid4()
+        with patch.dict(os.environ, {"GEMINI_API_KEY": "test-not-a-real-api-key"}):
+            response = self.post(
+                "/api/interviews/start/",
+                {
+                    "token": token,
+                    "tab_id": str(self.tab),
+                    "consent": True,
+                    "demo_acknowledged": True,
+                },
+            )
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertTrue(response.data["resumed"])
+        self.assertEqual(response.data["id"], str(interview.pk))
+        invitation.refresh_from_db()
+        self.assertIsNotNone(invitation.redeemed_at)
+
     def test_live_token_is_constrained_to_the_active_candidate_turn(self):
         from types import SimpleNamespace
 
