@@ -557,7 +557,7 @@ export default function LiveInterviewRoom({
     reconnectAttemptRef.current += 1;
     if (reconnectAttemptRef.current > 3) {
       moveToFallback(
-        "The live connection could not be restored. Your camera and microphone are off; use the typed accessibility response to continue.",
+        "The live connection could not be restored. Your camera and microphone remain available; retry live audio or continue with the typed response.",
       );
       return;
     }
@@ -891,10 +891,12 @@ export default function LiveInterviewRoom({
         ) : (
           <div className="live-typed-fallback">
             <div>
-              <MicOff size={18} />
-              <strong>Typed accessibility response</strong>
+              <WifiOff size={18} />
+              <strong>Live audio needs a retry</strong>
               <span>
-                Use this only if a microphone or live connection is unavailable.
+                Your camera and microphone stay local and are not recorded.
+                Retry live audio, or use a typed accessibility response if the
+                live connection remains unavailable.
               </span>
             </div>
             <textarea
