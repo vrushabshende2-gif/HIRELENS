@@ -400,7 +400,10 @@ class HireLensTests(TestCase):
         self.assertIsNone(invite.redeemed_at)
         invite.expires_at = timezone.now() - timedelta(seconds=1)
         invite.save()
-        self.assertEqual(self.post("/api/invite/preview/", {"token": token}).status_code, 409)
+        self.assertEqual(
+            self.client.get(f"/api/invite/preview/?token={token}").status_code,
+            409,
+        )
 
     def test_live_token_is_constrained_to_the_active_candidate_turn(self):
         from types import SimpleNamespace

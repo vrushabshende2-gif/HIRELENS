@@ -105,7 +105,7 @@ export function InvitePage() {
       );
       return;
     }
-    send<InviteInfo>("/invite/preview/", { token })
+    api<InviteInfo>(`/invite/preview/?token=${encodeURIComponent(token)}`)
       .then(setInfo)
       .catch((e) => setError(e.message));
   }, [token]);

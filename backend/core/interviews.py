@@ -171,13 +171,13 @@ def state(interview):
     return data
 
 
-@endpoint(["POST"], public=True)
+@endpoint(["GET"], public=True)
 def preview_invitation(request):
-    from .serializers import TokenInput
-
     request_limit(request, "invite_preview", 30, 600)
-    data = validated(TokenInput, request)
-    invite = invitation_for_token(data["token"])
+    token = request.query_params.get("token", "").strip()
+    if not token or len(token) > 200:
+        raise ValidationError("A valid invitation token is required.")
+    invite = invitation_for_token(token)
     drive = invite.drive
     return Response(
         {
