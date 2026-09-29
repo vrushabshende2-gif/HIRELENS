@@ -24,10 +24,33 @@ STYLES = ["explain", "implementation"]
 LEVEL_DIFFICULTY = {"foundation": -1, "junior": -1, "intermediate": 0, "senior": 1, "expert": 1}
 LEVEL_SECONDS = {"foundation": 90, "junior": 120, "intermediate": 150, "senior": 210, "expert": 270}
 CATALOG_COUNT = len(TRACKS) * len(COMPETENCIES) * len(LEVELS) * len(STYLES)
+_CANONICAL_TOPICS = {track.casefold(): track for track in TRACKS}
+_TOPIC_ALIASES = {
+    "ai/ml": "Machine Learning",
+    "ai ml": "Machine Learning",
+    "ai & ml": "Machine Learning",
+    "artificial intelligence": "Machine Learning",
+    "artificial intelligence / machine learning": "Machine Learning",
+    "ml": "Machine Learning",
+    "node": "Node.js",
+    "nodejs": "Node.js",
+    "postgres": "PostgreSQL",
+    "postgres sql": "PostgreSQL",
+    "dotnet": ".NET",
+    "c sharp": ".NET",
+    "k8s": "Kubernetes",
+    "reactjs": "React",
+    "typescript / javascript": "TypeScript",
+}
 
 
 def catalog_key(track, competency, level, style):
     return f"catalog-v1:{track}:{competency}:{level}:{style}"
+
+
+def canonical_topic(value):
+    normalized = " ".join(value.strip().casefold().split())
+    return _TOPIC_ALIASES.get(normalized, _CANONICAL_TOPICS.get(normalized, value.strip()))
 
 
 def make_question(track, competency, level, style):

@@ -356,6 +356,32 @@ class HireLensTests(TestCase):
             409,
         )
 
+    def test_drive_publish_canonicalizes_common_catalog_topic_aliases(self):
+        from .catalog import make_question
+
+        machine_position = Position.objects.create(
+            organization=self.org,
+            title="AI/ML Intern",
+            skills=[{"topic": "AI ML", "weight": 1, "minimum": 40}],
+        )
+        catalog_questions = [
+            Question.objects.create(organization=self.org, **make_question("Machine Learning", "fundamentals", level, style))
+            for level, style in [("foundation", "explain"), ("intermediate", "explain"), ("senior", "implementation")]
+        ]
+        draft = Drive.objects.create(
+            organization=self.org,
+            position=machine_position,
+            name="AI/ML draft",
+            expires_at=self.drive.expires_at,
+            question_count=3,
+        )
+        self.login(self.recruiter)
+        response = self.post(f"/api/drives/{draft.pk}/publish/")
+        self.assertEqual(response.status_code, 200, response.data)
+        draft.refresh_from_db()
+        self.assertEqual(draft.policy["skills"][0]["topic"], "Machine Learning")
+        self.assertEqual(len(draft.question_pool), len(catalog_questions))
+
     def test_invitation_wrong_email_expiry_and_missing_provider(self):
         self.login(self.candidate)
         invite, token = self.invite("different@test.example")

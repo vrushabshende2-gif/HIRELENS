@@ -32,7 +32,7 @@ from .serializers import (
 from .security import endpoint, request_limit, digest, audit, Conflict
 from .reporting import report_data, pdf_response, csv_response
 from .interviews import worker_ready
-from .catalog import CATALOG_COUNT, seed_catalog_batch
+from .catalog import CATALOG_COUNT, canonical_topic, seed_catalog_batch
 
 
 def org(request):
@@ -364,7 +364,10 @@ def publish(request, pk):
         if drive.expires_at <= timezone.now():
             raise ValidationError("Update the expiry date before publishing.")
         position = drive.position
-        topics = [s["topic"] for s in position.skills]
+        skills = [{**skill, "topic": canonical_topic(skill["topic"])} for skill in position.skills]
+        topics = [s["topic"] for s in skills]
+        if len({topic.casefold() for topic in topics}) != len(topics):
+            raise ValidationError("Position skills resolve to the same catalog topic. Keep each target topic unique.")
         pool = list(
             Question.objects.filter(
                 organization=drive.organization,
@@ -384,7 +387,7 @@ def publish(request, pk):
         drive.question_pool = [snapshot(q) for q in pool]
         drive.policy = {
             "title": position.title,
-            "skills": position.skills,
+            "skills": skills,
             "scoring_version": "2026-09-v1",
             "hire_threshold": 75,
             "borderline_threshold": 55,
