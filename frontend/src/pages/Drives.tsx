@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import {
@@ -15,6 +15,8 @@ import {
   PauseCircle,
   Play,
   Pencil,
+  ChevronDown,
+  Search,
 } from "lucide-react";
 import { send, useResource } from "../api";
 import type { Drive, Position } from "../types";
@@ -369,6 +371,8 @@ function DriveForm({
 }) {
   const { data: positions, error: loadError } =
       useResource<Position[]>("/positions/"),
+    availablePositions =
+      positions?.filter((candidate) => !candidate.archived) || [],
     [name, setName] = useState(value?.name || ""),
     [position, setPosition] = useState(value?.position_id || defaultPosition),
     [opens, setOpens] = useState(
@@ -428,22 +432,13 @@ function DriveForm({
         />
       </Field>
       <Field label="Position">
-        <select
-          required
+        <PositionPicker
+          positions={availablePositions}
           value={position}
-          onChange={(e) => setPosition(e.target.value)}
-        >
-          <option value="">Choose a position</option>
-          {positions
-            ?.filter((p) => !p.archived)
-            .map((p) => (
-              <option value={p.id} key={p.id}>
-                {p.title}
-              </option>
-            ))}
-        </select>
+          onChange={setPosition}
+        />
       </Field>
-      {positions?.length === 0 && (
+      {availablePositions.length === 0 && (
         <p className="muted">
           Create a position first in the Positions workspace.
         </p>
@@ -507,11 +502,97 @@ function DriveForm({
       </label>
       {(error || loadError) && <ErrorBox message={error || loadError} />}
       <div className="form-actions">
-        <Button disabled={busy || !positions?.length} type="submit">
+        <Button disabled={busy || !availablePositions.length} type="submit">
           {busy ? "Saving…" : value ? "Save changes" : "Create draft drive"}
         </Button>
       </div>
     </form>
+  );
+}
+
+function PositionPicker({
+  positions,
+  value,
+  onChange,
+}: {
+  positions: Position[];
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const pickerRef = useRef<HTMLDivElement>(null);
+  const selected = positions.find((candidate) => candidate.id === value);
+  const filtered = positions.filter((candidate) =>
+    candidate.title.toLowerCase().includes(query.trim().toLowerCase()),
+  );
+
+  useEffect(() => {
+    function closeOnOutsideClick(event: MouseEvent) {
+      if (
+        pickerRef.current &&
+        !pickerRef.current.contains(event.target as Node)
+      ) {
+        setOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", closeOnOutsideClick);
+    return () => document.removeEventListener("mousedown", closeOnOutsideClick);
+  }, []);
+
+  function choose(positionId: string) {
+    onChange(positionId);
+    setQuery("");
+    setOpen(false);
+  }
+
+  return (
+    <div className="position-picker" ref={pickerRef}>
+      <button
+        type="button"
+        className={`position-picker-trigger${selected ? " has-value" : ""}`}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        aria-label="Choose a position"
+        onClick={() => setOpen((current) => !current)}
+      >
+        <span>{selected?.title || "Choose a position"}</span>
+        <ChevronDown size={16} aria-hidden="true" />
+      </button>
+      {open && (
+        <div className="position-picker-popover">
+          <div className="position-picker-search">
+            <Search size={15} aria-hidden="true" />
+            <input
+              autoFocus
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Search positions…"
+              aria-label="Search positions"
+            />
+          </div>
+          <div className="position-picker-options" role="listbox">
+            {filtered.length ? (
+              filtered.map((candidate) => (
+                <button
+                  type="button"
+                  role="option"
+                  aria-selected={candidate.id === value}
+                  className={`position-picker-option${candidate.id === value ? " selected" : ""}`}
+                  key={candidate.id}
+                  onClick={() => choose(candidate.id)}
+                >
+                  <span>{candidate.title}</span>
+                  {candidate.id === value && <span>Selected</span>}
+                </button>
+              ))
+            ) : (
+              <p className="position-picker-empty">No matching positions.</p>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 function InviteForm({ driveId }: { driveId: string }) {

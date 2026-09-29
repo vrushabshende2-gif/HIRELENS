@@ -1990,6 +1990,107 @@ tbody tr:hover {
 .field textarea::placeholder {
   color: #9e83ad;
 }
+.position-picker {
+  position: relative;
+  width: 100%;
+}
+.position-picker-trigger {
+  align-items: center;
+  background: #fff;
+  border: 1px solid #e3d7eb;
+  border-radius: 7px;
+  color: #9e83ad;
+  cursor: pointer;
+  display: flex;
+  font: inherit;
+  justify-content: space-between;
+  min-height: 40px;
+  padding: 11px 12px;
+  text-align: left;
+  transition: box-shadow 0.18s, border-color 0.18s;
+  width: 100%;
+}
+.position-picker-trigger.has-value {
+  color: #62476f;
+}
+.position-picker-trigger:hover,
+.position-picker-trigger[aria-expanded="true"] {
+  border-color: #ac88c6;
+  box-shadow: 0 0 0 3px #caa5e517;
+}
+.position-picker-popover {
+  background: #fff;
+  border: 1px solid #e3d7eb;
+  border-radius: 10px;
+  box-shadow: 0 18px 50px #23133425;
+  left: 0;
+  padding: 8px;
+  position: absolute;
+  right: 0;
+  top: calc(100% + 7px);
+  z-index: 20;
+}
+.position-picker-search {
+  align-items: center;
+  background: #fbf8fd;
+  border: 1px solid #eee5f3;
+  border-radius: 7px;
+  color: #a58caf;
+  display: flex;
+  gap: 7px;
+  padding: 0 9px;
+}
+.position-picker-search input {
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  min-height: 36px;
+  outline: none;
+  padding: 7px 0;
+}
+.position-picker-search input:focus {
+  box-shadow: none;
+}
+.position-picker-options {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-top: 7px;
+  max-height: min(260px, 32vh);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 2px;
+}
+.position-picker-option {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: 7px;
+  color: #62476f;
+  cursor: pointer;
+  display: flex;
+  font: inherit;
+  justify-content: space-between;
+  padding: 10px;
+  text-align: left;
+  width: 100%;
+}
+.position-picker-option:hover,
+.position-picker-option.selected {
+  background: #f5edf9;
+  color: #5a376d;
+}
+.position-picker-option > span:last-child {
+  color: #9b79aa;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+.position-picker-empty {
+  color: #92769f;
+  font-size: 12px;
+  margin: 12px 8px;
+}
 .form-actions {
   border-top: 1px solid #eaddf2;
   padding-top: 21px;
