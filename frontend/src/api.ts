@@ -25,6 +25,7 @@ function errorText(data: unknown): string {
 export async function api<T>(
   path: string,
   options: RequestInit = {},
+  timeoutMs = 20000,
 ): Promise<T> {
   const headers = new Headers(options.headers);
   if (options.body) headers.set("Content-Type", "application/json");
@@ -32,7 +33,7 @@ export async function api<T>(
     headers.set("X-CSRFToken", csrf);
   let response: Response;
   const requestController = new AbortController();
-  const timeout = window.setTimeout(() => requestController.abort(), 20000);
+  const timeout = window.setTimeout(() => requestController.abort(), timeoutMs);
   const forwardAbort = () => requestController.abort();
   options.signal?.addEventListener("abort", forwardAbort, { once: true });
   try {

@@ -145,18 +145,20 @@ def seed_catalog_batch(organization: Organization, limit=600):
                 catalog_key__startswith="catalog-v1:",
             ).values_list("catalog_key", flat=True)
         )
-        created = 0
+        pending = []
         for payload in iter_catalog():
             if payload["catalog_key"] in existing:
                 continue
             issues = quality_issues(payload)
             if issues:
                 raise ValueError(f"Catalog quality checks failed: {', '.join(issues)}")
-            Question.objects.create(organization=locked_org, **payload)
+            pending.append(Question(organization=locked_org, **payload))
             existing.add(payload["catalog_key"])
-            created += 1
-            if created >= limit:
+            if len(pending) >= limit:
                 break
+        if pending:
+            Question.objects.bulk_create(pending, batch_size=200)
+        created = len(pending)
         total = Question.objects.filter(
             organization=locked_org,
             catalog_key__startswith="catalog-v1:",

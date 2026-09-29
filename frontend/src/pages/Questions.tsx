@@ -13,7 +13,7 @@ import {
   BookOpen,
   Sparkles,
 } from "lucide-react";
-import { send, useResource } from "../api";
+import { api, send, useResource } from "../api";
 import type { Question, Concept } from "../types";
 import {
   PageHeader,
@@ -77,7 +77,11 @@ export default function Questions() {
     try {
       let progress = catalogProgress || catalog;
       for (let attempt = 0; attempt < 12 && !progress?.complete; attempt += 1) {
-        progress = await send<CatalogStatus>("/questions/catalog/", {});
+        progress = await api<CatalogStatus>(
+          "/questions/catalog/",
+          { method: "POST", body: "{}" },
+          60000,
+        );
         setCatalogProgress(progress);
       }
       reloadCatalog();
