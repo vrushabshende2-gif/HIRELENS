@@ -138,6 +138,7 @@ export default function LiveInterviewRoom({
   const intentionalCloseRef = useRef(false);
   const reconnectAttemptRef = useRef(0);
   const reconnectTimerRef = useRef<number | null>(null);
+  const lastConnectionFailureRef = useRef("");
   const stateRef = useRef<RoomState>("preflight");
   const lastVoiceAtRef = useRef(0);
   const clarificationUsedRef = useRef(false);
@@ -554,10 +555,11 @@ export default function LiveInterviewRoom({
 
   function scheduleReconnect(message: string) {
     if (intentionalCloseRef.current || stateRef.current === "fallback") return;
+    lastConnectionFailureRef.current = message;
     reconnectAttemptRef.current += 1;
     if (reconnectAttemptRef.current > 3) {
       moveToFallback(
-        "The live connection could not be restored. Your camera and microphone remain available; retry live audio or continue with the typed response.",
+        `${lastConnectionFailureRef.current} Your camera and microphone remain available; retry live audio or continue with the typed response.`,
       );
       return;
     }
@@ -634,9 +636,16 @@ export default function LiveInterviewRoom({
           "The live connection was interrupted. Reconnecting while your devices stay connected…",
         );
       };
-      socket.onclose = () => {
+      socket.onclose = (event) => {
         if (socketRef.current === socket) socketRef.current = null;
-        scheduleReconnect("The Gemini connection dropped.");
+        const closeCode = event.code;
+        const reason =
+          closeCode === 1006
+            ? "The browser could not reach Gemini over WebSocket. Check firewall, VPN, or ad-blocker settings."
+            : closeCode === 1008
+              ? "Gemini rejected the live session configuration. Retry live audio to request a fresh session."
+              : "The Gemini connection dropped.";
+        scheduleReconnect(reason);
       };
     } catch (e) {
       if (reconnecting) {
