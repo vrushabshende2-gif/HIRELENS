@@ -155,6 +155,7 @@ export default function LiveInterviewRoom({
   const [microphones, setMicrophones] = useState<MediaDeviceInfo[]>([]);
   const [cameraId, setCameraId] = useState("");
   const [microphoneId, setMicrophoneId] = useState("");
+  const [retryAvailable, setRetryAvailable] = useState(false);
   const [network, setNetwork] = useState<NetworkState>({
     online: navigator.onLine,
     detail: "Checking connection…",
@@ -251,6 +252,30 @@ export default function LiveInterviewRoom({
     playingUntil.current = 0;
   }
 
+  function stopAudioCapture() {
+    capturing.current = false;
+    processorRef.current?.disconnect();
+    sourceRef.current?.disconnect();
+    gainRef.current?.disconnect();
+    processorRef.current = null;
+    sourceRef.current = null;
+    gainRef.current = null;
+  }
+
+  function stopLiveConnection() {
+    if (fallbackTimer.current) window.clearTimeout(fallbackTimer.current);
+    if (reconnectTimerRef.current)
+      window.clearTimeout(reconnectTimerRef.current);
+    fallbackTimer.current = null;
+    reconnectTimerRef.current = null;
+    intentionalCloseRef.current = true;
+    stopAudioCapture();
+    stopAiAudio();
+    const socket = socketRef.current;
+    socketRef.current = null;
+    socket?.close();
+  }
+
   async function runPreflight() {
     stopMedia();
     setError("");
@@ -303,15 +328,9 @@ export default function LiveInterviewRoom({
     reconnectTimerRef.current = null;
     finalizeTimerRef.current = null;
     intentionalCloseRef.current = true;
-    capturing.current = false;
+    stopAudioCapture();
     stopAiAudio();
     stopMonitor();
-    processorRef.current?.disconnect();
-    sourceRef.current?.disconnect();
-    gainRef.current?.disconnect();
-    processorRef.current = null;
-    sourceRef.current = null;
-    gainRef.current = null;
     streamRef.current?.getTracks().forEach((track) => track.stop());
     streamRef.current = null;
     if (videoRef.current) videoRef.current.srcObject = null;
@@ -322,8 +341,16 @@ export default function LiveInterviewRoom({
   }
 
   function moveToFallback(message: string) {
-    stopMedia();
-    setCameraOn(false);
+    stopLiveConnection();
+    setCameraOn(
+      Boolean(
+        streamRef.current
+          ?.getVideoTracks()
+          .some((track) => track.readyState === "live"),
+      ),
+    );
+    setMicMuted(false);
+    setRetryAvailable(true);
     setError(message);
     setRoomState("fallback");
   }
@@ -350,33 +377,54 @@ export default function LiveInterviewRoom({
   async function playPcm(data: string, mimeType = "audio/pcm;rate=24000") {
     const context = audioRef.current;
     if (!context) return;
-    const bytes = decodeBase64(data);
-    const pcm = new Int16Array(
-      bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength),
-    );
-    const rate = Number(mimeType.match(/rate=(\d+)/)?.[1] || "24000");
-    const buffer = context.createBuffer(1, pcm.length, rate);
-    const channel = buffer.getChannelData(0);
-    for (let i = 0; i < pcm.length; i += 1) channel[i] = pcm[i] / 32768;
-    const source = context.createBufferSource();
-    source.buffer = buffer;
-    source.connect(context.destination);
-    outputSourcesRef.current.add(source);
-    const startAt = Math.max(context.currentTime, playingUntil.current);
-    source.start(startAt);
-    playingUntil.current = startAt + buffer.duration;
-    setRoomState("speaking");
-    source.onended = () => {
-      outputSourcesRef.current.delete(source);
-      if (!capturing.current && !outputSourcesRef.current.size)
-        setRoomState(
-          awaitingClarificationRef.current ? "clarifying" : "ready",
-        );
-    };
+    try {
+      // A browser may suspend an AudioContext after an async token request.
+      // Resume it immediately before scheduling the first Gemini chunk.
+      if (context.state !== "running") await context.resume();
+      const bytes = decodeBase64(data);
+      const usableLength = bytes.byteLength - (bytes.byteLength % 2);
+      if (!usableLength) return;
+      const pcm = new Int16Array(
+        bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + usableLength),
+      );
+      const rate = Number(mimeType.match(/rate=(\d+)/)?.[1] || "24000");
+      const buffer = context.createBuffer(1, pcm.length, rate);
+      const channel = buffer.getChannelData(0);
+      for (let i = 0; i < pcm.length; i += 1) channel[i] = pcm[i] / 32768;
+      const source = context.createBufferSource();
+      source.buffer = buffer;
+      source.connect(context.destination);
+      outputSourcesRef.current.add(source);
+      const startAt = Math.max(context.currentTime, playingUntil.current);
+      source.start(startAt);
+      playingUntil.current = startAt + buffer.duration;
+      questionSpoken.current = true;
+      if (fallbackTimer.current) window.clearTimeout(fallbackTimer.current);
+      fallbackTimer.current = null;
+      setRoomState("speaking");
+      source.onended = () => {
+        outputSourcesRef.current.delete(source);
+        if (!capturing.current && !outputSourcesRef.current.size)
+          setRoomState(
+            awaitingClarificationRef.current ? "clarifying" : "ready",
+          );
+      };
+    } catch {
+      // Keep the live room usable if one malformed provider chunk is received.
+      setError(
+        "Gemini audio could not be played. Check your speaker volume or retry the live room.",
+      );
+      setRetryAvailable(true);
+    }
   }
 
   function speakFallback() {
-    if (questionSpoken.current || !window.speechSynthesis) return;
+    if (
+      questionSpoken.current ||
+      !window.speechSynthesis ||
+      outputSourcesRef.current.size
+    )
+      return;
     questionSpoken.current = true;
     const utterance = new SpeechSynthesisUtterance(
       `${attempt.title}. ${attempt.prompt}`,
@@ -384,7 +432,17 @@ export default function LiveInterviewRoom({
     utterance.rate = 0.94;
     utterance.onstart = () => setRoomState("speaking");
     utterance.onend = () => setRoomState("ready");
+    utterance.onerror = () => setRoomState("ready");
     window.speechSynthesis.speak(utterance);
+  }
+
+  function liveErrorMessage(error: Record<string, any>) {
+    const code = String(error.code || "");
+    if (code === "429" || code.toLowerCase().includes("quota"))
+      return "Gemini is temporarily at capacity. Your camera and microphone are still connected; retry live audio in a moment.";
+    if (code === "401" || code === "403")
+      return "The live interviewer session was not authorized. Check the Gemini API configuration and retry.";
+    return "The live interviewer connection was interrupted. Your camera and microphone are still connected; retry live audio to continue.";
   }
 
   function handleLiveMessage(event: MessageEvent<string>) {
@@ -395,9 +453,10 @@ export default function LiveInterviewRoom({
       return;
     }
     if (message.error) {
-      moveToFallback(
-        "The AI interviewer could not continue. You can switch to the typed accessibility response.",
-      );
+      // Do not call stopMedia here: it stops the candidate's tracks and turns
+      // the mic off after the first provider error. Preserve the preflight
+      // stream so a new constrained token can be tried without re-permission.
+      moveToFallback(liveErrorMessage(message.error));
       return;
     }
     if (message.setupComplete || message.setup_complete) {
@@ -420,7 +479,8 @@ export default function LiveInterviewRoom({
           },
         }),
       );
-      fallbackTimer.current = window.setTimeout(speakFallback, 5000);
+      setRetryAvailable(false);
+      fallbackTimer.current = window.setTimeout(speakFallback, 3500);
       return;
     }
     const content = message.serverContent || message.server_content;
@@ -430,9 +490,6 @@ export default function LiveInterviewRoom({
     const output = content.outputTranscription || content.output_transcription;
     if (output?.text) {
       setCaption((current) => mergeTranscript(current, output.text));
-      questionSpoken.current = true;
-      if (fallbackTimer.current) window.clearTimeout(fallbackTimer.current);
-      fallbackTimer.current = null;
     }
     const parts = content.modelTurn?.parts || content.model_turn?.parts || [];
     for (const part of parts) {
@@ -573,7 +630,9 @@ export default function LiveInterviewRoom({
       };
       socket.onmessage = handleLiveMessage;
       socket.onerror = () => {
-        setError("The live connection was interrupted.");
+        setError(
+          "The live connection was interrupted. Reconnecting while your devices stay connected…",
+        );
       };
       socket.onclose = () => {
         if (socketRef.current === socket) socketRef.current = null;
@@ -584,7 +643,7 @@ export default function LiveInterviewRoom({
         scheduleReconnect("The Gemini connection is still unavailable.");
       } else {
         moveToFallback(
-          (e as Error).message || "The live room could not start.",
+          "The live room could not start. Your camera and microphone are still connected; retry live audio or use the typed response.",
         );
       }
     }
@@ -596,7 +655,8 @@ export default function LiveInterviewRoom({
     stopAiAudio();
     setCaption("");
     if (awaitingClarificationRef.current) {
-      transcriptRef.current = `${transcriptRef.current.trim()} Clarification:`.trim();
+      transcriptRef.current =
+        `${transcriptRef.current.trim()} Clarification:`.trim();
       awaitingClarificationRef.current = false;
     } else {
       transcriptRef.current = "";
@@ -608,6 +668,14 @@ export default function LiveInterviewRoom({
       JSON.stringify({ realtimeInput: { activityStart: {} } }),
     );
     setRoomState("listening");
+  }
+
+  function retryLiveAudio() {
+    if (disabled || !streamRef.current) return;
+    setRetryAvailable(false);
+    setError("");
+    reconnectAttemptRef.current = 0;
+    join(true);
   }
 
   function commitTranscript() {
@@ -722,9 +790,9 @@ export default function LiveInterviewRoom({
                             ? "Review your answer"
                             : state === "clarifying"
                               ? "Clarification ready"
-                          : state === "fallback"
-                            ? "Accessibility response"
-                            : "Your turn"}
+                              : state === "fallback"
+                                ? "Accessibility response"
+                                : "Your turn"}
         </span>
         <span>
           <ShieldCheck size={14} /> No audio or video recording
@@ -837,6 +905,12 @@ export default function LiveInterviewRoom({
               disabled={disabled}
             />
             <div>
+              {retryAvailable && streamRef.current && (
+                <Button onClick={retryLiveAudio} disabled={disabled}>
+                  <RefreshCw size={16} />
+                  Retry live audio
+                </Button>
+              )}
               <Button
                 variant="secondary"
                 onClick={runPreflight}
@@ -1005,7 +1079,7 @@ export default function LiveInterviewRoom({
                   ? "Listening for your answer…"
                   : state === "clarifying"
                     ? "Answer the clarification when you are ready."
-                  : "Start when you are ready.")}
+                    : "Start when you are ready.")}
             </p>
           </div>
           {state === "listening" ? (
