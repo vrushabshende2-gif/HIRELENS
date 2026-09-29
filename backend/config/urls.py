@@ -52,6 +52,7 @@ urlpatterns = [
     path("api/drives/<uuid:pk>/publish/", views.publish),
     path("api/drives/<uuid:pk>/close/", views.close_drive),
     path("api/drives/<uuid:pk>/invite/", views.invite),
+    path("api/drives/<uuid:pk>/demo-candidate/", views.demo_candidate_access),
     path("api/candidates/", views.candidates),
     path("api/analytics/", views.analytics),
     path("api/reports/<uuid:pk>/", views.report),

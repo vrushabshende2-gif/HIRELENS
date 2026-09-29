@@ -17,6 +17,7 @@ import {
   Pencil,
   ChevronDown,
   Search,
+  KeyRound,
 } from "lucide-react";
 import { send, useResource } from "../api";
 import type { Drive, Position } from "../types";
@@ -161,6 +162,7 @@ export function DriveDetail() {
   const { id } = useParams(),
     { data, error, loading, reload } = useResource<Drive>(`/drives/${id}/`),
     [inviteOpen, setInviteOpen] = useState(false),
+    [demoAccessOpen, setDemoAccessOpen] = useState(false),
     [editOpen, setEditOpen] = useState(false),
     [closeOpen, setCloseOpen] = useState(false),
     [actionError, setActionError] = useState(""),
@@ -215,6 +217,12 @@ export function DriveDetail() {
                   <PauseCircle size={16} />
                   Close drive
                 </Button>
+                {data.demo_data && (
+                  <Button variant="secondary" onClick={() => setDemoAccessOpen(true)}>
+                    <KeyRound size={16} />
+                    Demo candidate
+                  </Button>
+                )}
                 <Button onClick={() => setInviteOpen(true)}>
                   <Plus size={17} />
                   Invite candidate
@@ -356,7 +364,99 @@ export function DriveDetail() {
           </Button>
         </div>
       </Modal>
+      <Modal
+        open={demoAccessOpen}
+        onOpenChange={setDemoAccessOpen}
+        title="Private demo candidate"
+        description="Use this synthetic candidate identity to test the interview with one email account."
+      >
+        {demoAccessOpen && <DemoAccessForm driveId={data.id} />}
+      </Modal>
     </>
+  );
+}
+
+function DemoAccessForm({ driveId }: { driveId: string }) {
+  const [access, setAccess] = useState<{
+      email: string;
+      password: string;
+      invite_url: string;
+      expires_at: string;
+    } | null>(null),
+    [busy, setBusy] = useState(false),
+    [error, setError] = useState(""),
+    [copied, setCopied] = useState("");
+  async function createAccess() {
+    setBusy(true);
+    setError("");
+    try {
+      setAccess(
+        await send<{
+          email: string;
+          password: string;
+          invite_url: string;
+          expires_at: string;
+        }>(`/drives/${driveId}/demo-candidate/`),
+      );
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function copy(value: string, label: string) {
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopied(label);
+      window.setTimeout(() => setCopied(""), 1800);
+    } catch {
+      setError("Clipboard access is unavailable. Select the value and copy it manually.");
+    }
+  }
+  if (!access) {
+    return (
+      <div className="form-stack">
+        <div className="notice">
+          <KeyRound size={16} />
+          This creates a verified synthetic candidate and never sends an email. Use the credentials in a separate browser window.
+        </div>
+        {error && <ErrorBox message={error} />}
+        <div className="form-actions">
+          <Button disabled={busy} onClick={createAccess}>
+            {busy ? "Creating access…" : "Create demo access"}
+          </Button>
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div className="form-stack">
+      <div className="success-icon">
+        <Check size={28} />
+      </div>
+      <h3>Demo candidate access is ready.</h3>
+      <p className="muted">Open the invitation link in incognito, then sign in with these credentials.</p>
+      <Field label="Candidate email">
+        <input readOnly value={access.email} onFocus={(e) => e.target.select()} />
+      </Field>
+      <Field label="Candidate password">
+        <input readOnly value={access.password} onFocus={(e) => e.target.select()} />
+      </Field>
+      <Field label="Invitation link">
+        <input readOnly value={access.invite_url} onFocus={(e) => e.target.select()} />
+      </Field>
+      <div className="button-row">
+        <Button onClick={() => copy(access.invite_url, "link")}>
+          {copied === "link" ? <Check size={16} /> : <Copy size={16} />}
+          {copied === "link" ? "Copied" : "Copy link"}
+        </Button>
+        <Button variant="secondary" onClick={() => copy(`${access.email}\n${access.password}`, "credentials")}>
+          {copied === "credentials" ? <Check size={16} /> : <Copy size={16} />}
+          {copied === "credentials" ? "Copied" : "Copy credentials"}
+        </Button>
+      </div>
+      <p className="field-hint">This access expires with the drive.</p>
+    </div>
   );
 }
 

@@ -2,6 +2,7 @@ import os
 import secrets
 import uuid
 from collections import Counter
+from django.conf import settings
 from django.db import transaction, IntegrityError
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
@@ -446,6 +447,60 @@ def invite(request, pk):
     audit(request, "invitation_created", invitation.pk)
     return Response(
         {"id": str(invitation.pk), "link": link, "email_queued": send_email}, status=201
+    )
+
+
+@endpoint(["POST"], recruiter=True)
+def demo_candidate_access(request, pk):
+    """Create a synthetic, verified candidate for one-account private demos."""
+    if os.getenv("AI_DATA_POLICY", "demo_only") != "demo_only":
+        raise PermissionDenied("Demo candidate access is disabled for this deployment.")
+    request_limit(request, "demo_candidate_access", 5, 600)
+    organization = org(request)
+    drive = get_object_or_404(Drive, pk=pk, organization=organization)
+    if not drive.demo_data:
+        raise ValidationError("Demo candidate access is only available for demonstration drives.")
+    if drive.status != "active":
+        raise Conflict("Publish the drive before creating demo candidate access.")
+    suffix = str(organization.pk).replace("-", "")[:12]
+    email = f"demo-candidate-{suffix}@demo.hirelens.test"
+    password = secrets.token_urlsafe(16)
+    candidate, created = User.objects.get_or_create(
+        email=email,
+        defaults={
+            "username": secrets.token_hex(16),
+            "first_name": "Demo Candidate",
+            "role": "candidate",
+            "verified": True,
+        },
+    )
+    if candidate.role != "candidate":
+        raise Conflict("The private demo candidate identity is unavailable.")
+    candidate.first_name = "Demo Candidate"
+    candidate.verified = True
+    candidate.set_password(password)
+    candidate.save(update_fields=["first_name", "verified", "password"])
+    token = secrets.token_urlsafe(32)
+    invitation, _ = Invitation.objects.update_or_create(
+        drive=drive,
+        email=email,
+        defaults={
+            "name": "Demo Candidate",
+            "token_hash": digest(token),
+            "expires_at": drive.expires_at,
+            "redeemed_at": None,
+        },
+    )
+    audit(request, "demo_candidate_access_created", invitation.pk)
+    return Response(
+        {
+            "email": email,
+            "password": password,
+            "invite_url": f"{settings.PUBLIC_URL}/invite#token={token}",
+            "expires_at": invitation.expires_at,
+            "reused_account": not created,
+        },
+        status=201,
     )
 
 

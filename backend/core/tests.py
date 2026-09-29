@@ -310,6 +310,18 @@ class HireLensTests(TestCase):
         self.assertEqual(other_status.status_code, 200)
         self.assertEqual(other_status.data["total"], 0)
 
+    def test_private_demo_candidate_access_works_with_one_email_account(self):
+        self.login(self.recruiter)
+        response = self.post(f"/api/drives/{self.drive.pk}/demo-candidate/")
+        self.assertEqual(response.status_code, 201, response.data)
+        self.assertTrue(response.data["email"].endswith("@demo.hirelens.test"))
+        self.assertTrue(response.data["password"])
+        demo = User.objects.get(email=response.data["email"])
+        self.assertEqual(demo.role, "candidate")
+        self.assertTrue(demo.verified)
+        invitation = Invitation.objects.get(drive=self.drive, email=demo.email)
+        self.assertIsNone(invitation.redeemed_at)
+
     def test_cross_organization_resource_access(self):
         self.login(self.other)
         self.assertEqual(self.client.get("/api/positions/").data, [])
