@@ -29,6 +29,6 @@ services:
       - key: RESEND_API_KEY
         sync: false
       - key: EMAIL_FROM
-        sync: false
+        value: HireLens <onboarding@resend.dev>
       - key: SESSION_COOKIE_SECURE
         value: "true"

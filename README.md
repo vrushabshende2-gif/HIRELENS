@@ -43,7 +43,7 @@ Gemini is the chosen LLM provider; no local generative model or paid model API i
 
 Local development writes transactional emails to the ignored `.mail/` directory. Start the worker, sign up, and open the verification URL from that local file. Reset links work the same way. Demo accounts are already verified.
 
-Deployment uses Resend's HTTPS transactional endpoint. Set `RESEND_API_KEY` and `EMAIL_FROM=HireLens <your-verified-domain@example.com>` when you need to send email to real people. Resend's testing sender can deliver only to the account owner; a verified sending domain is required for normal recipient delivery. Failed sends stay visible in the job records with safe error codes and are retried. Production startup refuses to silently use a dummy email backend.
+Deployment uses Resend's HTTPS transactional endpoint. The private demo blueprint uses `EMAIL_FROM=HireLens <onboarding@resend.dev>`, which can deliver only to the Resend account owner. For real recipients, set `EMAIL_FROM=HireLens <your-verified-domain@example.com>` and verify that domain in Resend. Failed sends stay visible in the job records with safe error codes and are retried. Production startup refuses to silently use a dummy email backend.
 
 ## What is implemented
 
