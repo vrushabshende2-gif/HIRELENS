@@ -45,6 +45,7 @@ urlpatterns = [
     path("api/workspace/members/<uuid:pk>/", views.workspace_member_detail),
     path("api/positions/<uuid:pk>/", views.position_detail),
     path("api/questions/", views.questions),
+    path("api/questions/catalog/", views.question_catalog),
     path("api/questions/<uuid:pk>/", views.question_detail),
     path("api/drives/", views.drives),
     path("api/drives/<uuid:pk>/", views.drive_detail),

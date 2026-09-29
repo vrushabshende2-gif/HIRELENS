@@ -11,6 +11,7 @@ import {
   ChevronDown,
   ChevronUp,
   BookOpen,
+  Sparkles,
 } from "lucide-react";
 import { send, useResource } from "../api";
 import type { Question, Concept } from "../types";
@@ -26,6 +27,13 @@ import {
   SearchInput,
   useToast,
 } from "../ui";
+
+type CatalogStatus = {
+  created: number;
+  total: number;
+  expected: number;
+  complete: boolean;
+};
 
 export default function Questions() {
   const [params] = useSearchParams();
@@ -43,6 +51,15 @@ export default function Questions() {
     useResource<{ results: Question[]; count: number; next_offset: number | null }>(
       `/questions/?limit=100&offset=${page * 100}&search=${encodeURIComponent(search)}${topic !== "all" ? `&topic=${encodeURIComponent(topic)}` : ""}${difficulty !== "all" ? `&difficulty=${difficulty}` : ""}`,
     );
+  const {
+    data: catalog,
+    error: catalogError,
+    loading: catalogLoading,
+    reload: reloadCatalog,
+  } = useResource<CatalogStatus>("/questions/catalog/");
+  const [catalogBusy, setCatalogBusy] = useState(false);
+  const [catalogProgress, setCatalogProgress] = useState<CatalogStatus | null>(null);
+  const [catalogActionError, setCatalogActionError] = useState("");
   useEffect(() => setSearch(initialSearch), [initialSearch]);
   const rows = (data?.results || []).filter(
     (q) =>
@@ -53,6 +70,24 @@ export default function Questions() {
         .toLowerCase()
         .includes(search.toLowerCase()),
   );
+  async function initializeCatalog() {
+    if (catalogBusy) return;
+    setCatalogBusy(true);
+    setCatalogActionError("");
+    try {
+      let progress = catalogProgress || catalog;
+      for (let attempt = 0; attempt < 12 && !progress?.complete; attempt += 1) {
+        progress = await send<CatalogStatus>("/questions/catalog/", {});
+        setCatalogProgress(progress);
+      }
+      reloadCatalog();
+      reload();
+    } catch (e) {
+      setCatalogActionError((e as Error).message);
+    } finally {
+      setCatalogBusy(false);
+    }
+  }
   async function archiveQuestion() {
     if (!archive) return;
     try {
@@ -73,10 +108,22 @@ export default function Questions() {
         title="Better questions. Clearer signals."
         description="A considered question bank is the foundation of a fair interview."
         action={
-          <Button onClick={() => setEditing(null)}>
-            <Plus size={17} />
-            Add question
-          </Button>
+          <div className="button-row">
+            {!catalogLoading && catalog && !catalog.complete && (
+              <Button
+                variant="secondary"
+                disabled={catalogBusy}
+                onClick={initializeCatalog}
+              >
+                <Sparkles size={16} />
+                {catalogBusy ? "Loading catalog…" : "Initialize catalog"}
+              </Button>
+            )}
+            <Button onClick={() => setEditing(null)}>
+              <Plus size={17} />
+              Add question
+            </Button>
+          </div>
         }
       />
       <div className="summary-pills">
@@ -96,6 +143,32 @@ export default function Questions() {
           coding questions
         </span>
       </div>
+      {!catalogLoading && catalog && !catalog.complete && (
+        <section className="catalog-banner panel">
+          <div className="catalog-banner-icon">
+            <Sparkles size={18} />
+          </div>
+          <div>
+            <strong>Finish your governed question library</strong>
+            <p>
+              {catalogProgress?.total || catalog.total} of {catalog.expected} questions are ready. Load the catalog in safe batches so drives can meet topic coverage automatically.
+            </p>
+          </div>
+          <Button
+            variant="secondary"
+            disabled={catalogBusy}
+            onClick={initializeCatalog}
+          >
+            {catalogBusy ? "Loading…" : "Load questions"}
+          </Button>
+        </section>
+      )}
+      {(catalogError || catalogActionError) && (
+        <ErrorBox
+          message={catalogError || catalogActionError}
+          retry={reloadCatalog}
+        />
+      )}
       <section className="panel">
         <div className="filter-bar">
           <SearchInput

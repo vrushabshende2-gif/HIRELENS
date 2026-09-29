@@ -292,6 +292,24 @@ class HireLensTests(TestCase):
         self.assertEqual(response.data["count"], len(self.questions))
         self.assertEqual(response.data["next_offset"], 2)
 
+    def test_catalog_can_be_initialized_without_a_server_shell(self):
+        self.login(self.recruiter)
+        status = self.client.get("/api/questions/catalog/")
+        self.assertEqual(status.status_code, 200)
+        self.assertFalse(status.data["complete"])
+        seeded = self.post("/api/questions/catalog/")
+        self.assertEqual(seeded.status_code, 200, seeded.data)
+        self.assertGreater(seeded.data["created"], 0)
+        self.assertLessEqual(seeded.data["created"], 600)
+        self.assertEqual(
+            Question.objects.filter(organization=self.org, catalog_key__startswith="catalog-v1:").count(),
+            seeded.data["created"],
+        )
+        self.login(self.other)
+        other_status = self.client.get("/api/questions/catalog/")
+        self.assertEqual(other_status.status_code, 200)
+        self.assertEqual(other_status.data["total"], 0)
+
     def test_cross_organization_resource_access(self):
         self.login(self.other)
         self.assertEqual(self.client.get("/api/positions/").data, [])

@@ -105,7 +105,15 @@ class Question(Record):
     misconceptions = models.JSONField(default=list)
     quality_status = models.CharField(max_length=20, default="active")
     quality_issues = models.JSONField(default=list)
-    catalog_key = models.CharField(max_length=180, blank=True, null=True, unique=True)
+    catalog_key = models.CharField(max_length=180, blank=True, null=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["organization", "catalog_key"],
+                name="unique_organization_catalog_key",
+            )
+        ]
 
 
 class Drive(Record):

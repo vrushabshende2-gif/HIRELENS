@@ -32,6 +32,7 @@ from .serializers import (
 from .security import endpoint, request_limit, digest, audit, Conflict
 from .reporting import report_data, pdf_response, csv_response
 from .interviews import worker_ready
+from .catalog import CATALOG_COUNT, seed_catalog_batch
 
 
 def org(request):
@@ -278,6 +279,29 @@ def question_detail(request, pk):
 
 
 @endpoint(["GET", "POST"], recruiter=True)
+def question_catalog(request):
+    """Report or incrementally initialize the governed catalog without a server shell."""
+    organization = org(request)
+    if request.method == "POST":
+        request_limit(request, "catalog_seed", 30, 300)
+        result = seed_catalog_batch(organization)
+        audit(request, "question_catalog_seeded", organization.pk)
+    else:
+        result = {
+            "created": 0,
+            "total": Question.objects.filter(
+                organization=organization,
+                catalog_key__startswith="catalog-v1:",
+                archived=False,
+                quality_status="active",
+            ).count(),
+            "expected": CATALOG_COUNT,
+        }
+        result["complete"] = result["total"] >= CATALOG_COUNT
+    return Response(result)
+
+
+@endpoint(["GET", "POST"], recruiter=True)
 def drives(request):
     organization = org(request)
     if request.method == "GET":
@@ -352,7 +376,7 @@ def publish(request, pk):
         )
         if len(pool) < drive.question_count or drive.question_count < len(topics):
             raise ValidationError(
-                "Add enough questions for the interview length and required topic coverage."
+                "This drive needs more active questions for its target topics. Open Question Bank and initialize the governed catalog, then use matching catalog topic names such as Machine Learning or Python."
             )
         for topic in topics:
             if not any(q.topic == topic and q.difficulty == 0 for q in pool):

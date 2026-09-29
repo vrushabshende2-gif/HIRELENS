@@ -2091,6 +2091,47 @@ tbody tr:hover {
   font-size: 12px;
   margin: 12px 8px;
 }
+.catalog-banner {
+  align-items: center;
+  background: linear-gradient(120deg, #fbf6ff, #fffdfd);
+  border-color: #eadcf1;
+  display: flex;
+  gap: 14px;
+  margin: 22px 0;
+  padding: 16px 18px;
+}
+.catalog-banner-icon {
+  align-items: center;
+  background: #efe2f7;
+  border-radius: 10px;
+  color: #815298;
+  display: flex;
+  flex: 0 0 36px;
+  height: 36px;
+  justify-content: center;
+}
+.catalog-banner > div:nth-child(2) {
+  flex: 1;
+}
+.catalog-banner strong {
+  color: #61416e;
+  font-size: 13px;
+}
+.catalog-banner p {
+  color: #92769f;
+  font-size: 11px;
+  line-height: 1.6;
+  margin: 4px 0 0;
+}
+@media (max-width: 640px) {
+  .catalog-banner {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+  .catalog-banner .button {
+    margin-left: 50px;
+  }
+}
 .form-actions {
   border-top: 1px solid #eaddf2;
   padding-top: 21px;
