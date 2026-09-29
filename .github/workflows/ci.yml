@@ -1,0 +1,43 @@
+name: Verify HireLens
+on: [push, pull_request]
+jobs:
+  application:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: hirelens
+          POSTGRES_PASSWORD: isolated-ci-database
+          POSTGRES_DB: hirelens
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U hirelens"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DEBUG: "true"
+      SECRET_KEY: ci-only-disposable-secret-not-used-in-any-deployment-123456
+      DATABASE_URL: postgres://hirelens:isolated-ci-database@localhost:5432/hirelens
+      PUBLIC_URL: http://localhost:8000
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: pip install -r requirements-dev.txt
+      - run: npm ci --prefix frontend
+      - run: npm run build --prefix frontend
+      - run: ruff check backend evaluation scripts
+      - run: python manage.py makemigrations --check --dry-run
+      - run: python manage.py test backend.core --noinput
+      - run: python manage.py collectstatic --noinput
+      - run: npx playwright install --with-deps chromium
+        working-directory: frontend
+      - run: python scripts/verify_browser.py

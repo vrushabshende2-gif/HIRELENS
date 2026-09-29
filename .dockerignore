@@ -1,0 +1,14 @@
+.git
+.env
+.env.*
+.venv
+.runtime
+.mail
+artifacts
+staticfiles
+*.sqlite3*
+**/__pycache__
+frontend/node_modules
+frontend/dist
+frontend/tests
+**/*.tsbuildinfo

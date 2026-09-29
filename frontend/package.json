@@ -1,0 +1,38 @@
+{
+  "name": "hirelens",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "build": "tsc -b && vite build",
+    "typecheck": "tsc -b",
+    "test:e2e": "node tests/browser.mjs",
+    "test:a11y": "node tests/accessibility.mjs",
+    "format": "prettier --write src tests *.json *.ts index.html"
+  },
+  "dependencies": {
+    "@codemirror/lang-javascript": "^6.2.3",
+    "@codemirror/lang-python": "^6.2.1",
+    "@fontsource-variable/instrument-sans": "^5.3.0",
+    "@fontsource/instrument-serif": "^5.3.0",
+    "@radix-ui/react-dialog": "^1.1.6",
+    "@uiw/react-codemirror": "^4.23.0",
+    "lucide-react": "^0.468.0",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "react-router-dom": "^7.6.0",
+    "recharts": "^3.0.0"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "^4.13.0",
+    "@playwright/test": "^1.54.0",
+    "@types/react": "^19.1.0",
+    "@types/react-dom": "^19.1.0",
+    "@vitejs/plugin-react": "^4.5.0",
+    "agent-browser": "^0.21.0",
+    "prettier": "^3.9.7",
+    "typescript": "~5.8.3",
+    "vite": "^6.3.0"
+  }
+}

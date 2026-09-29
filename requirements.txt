@@ -1,0 +1,14 @@
+Django>=5.2.12,<5.3
+djangorestframework>=3.16,<3.17
+argon2-cffi>=25.1,<26
+dj-database-url>=3,<4
+psycopg[binary]>=3.2,<4
+python-dotenv>=1.1,<2
+httpx>=0.28,<0.29
+pydantic>=2.11,<3
+reportlab>=4.4,<5
+whitenoise>=6.9,<7
+waitress>=3.0,<4
+tree-sitter>=0.25,<0.26
+tree-sitter-javascript>=0.25,<0.26
+tree-sitter-typescript>=0.23,<0.24
