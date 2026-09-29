@@ -349,8 +349,17 @@ def live_token(request, pk):
     try:
         issued = create_live_token(attempt.question)
     except ProviderError as exc:
+        safe_messages = {
+            "ai_rate_limited": "Gemini is temporarily rate-limited. Wait about a minute, then retry live audio.",
+            "ai_quota_wait": "Gemini is temporarily rate-limited. Wait about a minute, then retry live audio.",
+            "ai_configuration_error": "Gemini Live is not accepting this model or API key. Check GEMINI_LIVE_MODEL and GEMINI_API_KEY in Render.",
+            "ai_not_configured": "Gemini is not configured on the server. Add GEMINI_API_KEY in Render.",
+        }
         raise Unavailable(
-            "The live interviewer is temporarily unavailable. Please try again."
+            safe_messages.get(
+                exc.code,
+                "The live interviewer is temporarily unavailable. Please try again.",
+            )
         ) from exc
     audit(request, "live_session_authorized", attempt.pk)
     return Response({**issued, "attempt_id": str(attempt.pk)})

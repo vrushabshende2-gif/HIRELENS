@@ -18,12 +18,19 @@ class ProviderError(Exception):
         self.retry_after = retry_after
 
 
+def env_value(name, default=""):
+    value = os.getenv(name, default).strip()
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
+        value = value[1:-1].strip()
+    return value
+
+
 def configured():
-    return bool(os.getenv("GEMINI_API_KEY", "").strip())
+    return bool(env_value("GEMINI_API_KEY"))
 
 
 def live_model():
-    model = os.getenv("GEMINI_LIVE_MODEL", "gemini-3.8-live")
+    model = env_value("GEMINI_LIVE_MODEL", "gemini-3.8-live")
     if not re.fullmatch(r"[a-zA-Z0-9._-]+", model):
         raise ProviderError("invalid_model_configuration", 300)
     return model
@@ -79,7 +86,7 @@ def create_live_token(question):
     try:
         response = httpx.post(
             "https://generativelanguage.googleapis.com/v1beta/auth_tokens",
-            headers={"x-goog-api-key": os.environ["GEMINI_API_KEY"]},
+            headers={"x-goog-api-key": env_value("GEMINI_API_KEY")},
             json=payload,
             timeout=httpx.Timeout(20, connect=10),
         )
@@ -117,7 +124,7 @@ def call(model, operation, payload):
     try:
         response = httpx.post(
             f"https://generativelanguage.googleapis.com/v1beta/models/{model}:{operation}",
-            headers={"x-goog-api-key": os.environ["GEMINI_API_KEY"]},
+            headers={"x-goog-api-key": env_value("GEMINI_API_KEY")},
             json=payload,
             timeout=httpx.Timeout(75, connect=10),
         )
