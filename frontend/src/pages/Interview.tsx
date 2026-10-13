@@ -13,7 +13,6 @@ import {
   Info,
   ScanLine,
   ArrowUpRight,
-  RotateCcw,
   CalendarDays,
   Sparkles,
   TimerReset,
@@ -395,12 +394,14 @@ export default function Interview() {
     [now, setNow] = useState(Date.now()),
     [offset, setOffset] = useState(0);
   const currentAttempt = useRef(""),
+    lastAttempt = useRef<InterviewState["attempt"]>(null),
     submissionIds = useRef<Record<string, string>>({}),
     lastSaved = useRef(""),
     answerRef = useRef(""),
     submitRef = useRef<() => void>(() => {}),
     mounted = useRef(true);
   const attempt = data?.attempt;
+  const roomAttempt = attempt ?? lastAttempt.current;
   const elapsed = attempt
     ? Math.max(0, (now + offset - new Date(attempt.issued_at).getTime()) / 1000)
     : 0;
@@ -414,6 +415,7 @@ export default function Interview() {
     try {
       const d = await api<InterviewState>(`/interviews/${id}/`);
       if (!mounted.current) return;
+      if (d.attempt) lastAttempt.current = d.attempt;
       setData(d);
       setOffset(new Date(d.server_time).getTime() - Date.now());
       if (d.attempt && currentAttempt.current !== d.attempt.id) {
@@ -687,75 +689,39 @@ export default function Interview() {
                 Continue in this tab
               </Button>
             </div>
-          ) : data.processing ? (
-            <div className="panel processing-panel">
-              <div className="processing-lens">
-                <ScanLine size={35} />
-              </div>
-              <Badge tone="green">Answer received</Badge>
-              <h2>
-                {data.processing_failed
-                  ? "Your answer is safe."
-                  : "A moment to consider your answer."}
-              </h2>
-              <p>
-                {data.processing_failed
-                  ? "Evaluation couldn’t finish. You can retry without resubmitting your answer."
-                  : data.processing_error
-                    ? "Evaluation is taking a little longer. We’ll continue when processing is available."
-                    : "We’re reviewing your response and preparing the next question."}
-              </p>
-              <span className="muted small">
-                <Clock3 size={14} />
-                Your answering timer is paused.
-              </span>
-              {data.processing_failed && (
-                <Button onClick={retry}>
-                  <RotateCcw size={16} />
-                  Retry evaluation
-                </Button>
-              )}
-            </div>
-          ) : attempt ? (
-            attempt.kind === "text" ? (
+          ) : roomAttempt ? (
+            <>
               <LiveInterviewRoom
-                key={attempt.id}
                 interviewId={id || ""}
                 tabId={TAB_ID}
-                attempt={attempt}
-                disabled={submitting}
+                attempt={roomAttempt}
+                disabled={submitting || data.processing}
+                processing={data.processing}
+                processingFailed={data.processing_failed}
+                onRetryEvaluation={retry}
+                questionOnly={roomAttempt.kind === "code"}
+                workspaceReady={codeBriefedAttempt === roomAttempt.id}
+                onQuestionReady={() => setCodeBriefedAttempt(roomAttempt.id)}
                 onTranscript={change}
                 onFinalAnswer={(value) => {
                   change(value);
                   submit(value);
                 }}
               />
-            ) : codeBriefedAttempt !== attempt.id ? (
-              <LiveInterviewRoom
-                key={attempt.id}
-                interviewId={id || ""}
-                tabId={TAB_ID}
-                attempt={attempt}
-                disabled={submitting}
-                questionOnly
-                onQuestionReady={() => setCodeBriefedAttempt(attempt.id)}
-                onTranscript={() => undefined}
-                onFinalAnswer={() => undefined}
-              />
-            ) : (
+              {!data.processing &&
+                roomAttempt.kind === "code" &&
+                codeBriefedAttempt === roomAttempt.id && (
               <div className="panel question-workspace">
                 <div className="question-context">
                   <Badge tone="green">
-                    Question {attempt.ordinal} of {data.question_count}
+                    Question {roomAttempt.ordinal} of {data.question_count}
                   </Badge>
-                  <span>{attempt.topic}</span>
+                  <span>{roomAttempt.topic}</span>
                 </div>
-                <h2>{attempt.title}</h2>
-                <p className="question-prompt">{attempt.prompt}</p>
+                <h2>{roomAttempt.title}</h2>
+                <p className="question-prompt">{roomAttempt.prompt}</p>
                 <div className="answer-label">
-                  <label htmlFor="candidate-answer">
-                    {attempt.kind === "code" ? "Your solution" : "Your answer"}
-                  </label>
+                  <label htmlFor="candidate-answer">Your solution</label>
                   <span
                     className={`save-state ${saving === "offline" ? "offline" : ""}`}
                     role="status"
@@ -778,7 +744,7 @@ export default function Interview() {
                   <CodeEditor
                     value={answer}
                     onChange={change}
-                    language={attempt.language}
+                    language={roomAttempt.language}
                     disabled={submitting}
                   />
                 </Suspense>
@@ -801,14 +767,15 @@ export default function Interview() {
                   >
                     {submitting
                       ? "Submitting…"
-                      : attempt.ordinal === data.question_count
+                      : roomAttempt.ordinal === data.question_count
                         ? "Submit final answer"
                         : "Submit answer"}
                     <ArrowRight size={17} />
                   </Button>
                 </div>
               </div>
-            )
+                )}
+            </>
           ) : (
             <Loading />
           )}

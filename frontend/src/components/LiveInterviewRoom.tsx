@@ -5,6 +5,7 @@ import {
   Mic,
   MicOff,
   RefreshCw,
+  ScanLine,
   ShieldCheck,
   CircleHelp,
   Wifi,
@@ -15,7 +16,7 @@ import {
 } from "lucide-react";
 import { ApiError } from "../api";
 import LensArtwork from "./LensArtwork";
-import { Button, ErrorBox } from "../ui";
+import { Badge, Button, ErrorBox } from "../ui";
 
 type LiveAttempt = {
   id: string;
@@ -31,7 +32,11 @@ type Props = {
   tabId: string;
   attempt: LiveAttempt;
   disabled?: boolean;
+  processing?: boolean;
+  processingFailed?: boolean;
+  onRetryEvaluation?: () => void;
   questionOnly?: boolean;
+  workspaceReady?: boolean;
   onQuestionReady?: () => void;
   onTranscript: (value: string) => void;
   onFinalAnswer: (value: string) => void;
@@ -47,6 +52,7 @@ type RoomState =
   | "listening"
   | "finishing"
   | "review"
+  | "evaluating"
   | "clarifying"
   | "reconnecting"
   | "fallback";
@@ -132,7 +138,11 @@ export default function LiveInterviewRoom({
   tabId,
   attempt,
   disabled = false,
+  processing = false,
+  processingFailed = false,
+  onRetryEvaluation,
   questionOnly = false,
+  workspaceReady = false,
   onQuestionReady,
   onTranscript,
   onFinalAnswer,
@@ -164,6 +174,10 @@ export default function LiveInterviewRoom({
   const awaitingClarificationRef = useRef(false);
   const finishRef = useRef<() => void>(() => undefined);
   const fallbackRecognitionRef = useRef<SpeechRecognitionLike | null>(null);
+  const onFinalAnswerRef = useRef(onFinalAnswer);
+  const onQuestionReadyRef = useRef(onQuestionReady);
+  const previousAttemptId = useRef(attempt.id);
+  const joinedOnceRef = useRef(false);
   const [state, setState] = useState<RoomState>("preflight");
   const [error, setError] = useState("");
   const [caption, setCaption] = useState("");
@@ -184,6 +198,8 @@ export default function LiveInterviewRoom({
     detail: "Checking connection…",
   });
   const [helpOpen, setHelpOpen] = useState(false);
+  onFinalAnswerRef.current = onFinalAnswer;
+  onQuestionReadyRef.current = onQuestionReady;
 
   function updateTranscript(value: string) {
     transcriptRef.current = mergeTranscript(transcriptRef.current, value);
@@ -400,6 +416,49 @@ export default function LiveInterviewRoom({
       stopMedia();
     };
   }, []);
+
+  useEffect(() => {
+    if (processing) {
+      stopLiveConnection();
+      setRoomState("evaluating");
+      return;
+    }
+    if (previousAttemptId.current === attempt.id) return;
+
+    previousAttemptId.current = attempt.id;
+    if (finalizeTimerRef.current) window.clearTimeout(finalizeTimerRef.current);
+    finalizeTimerRef.current = null;
+    transcriptRef.current = "";
+    setTranscript("");
+    setCaption("");
+    setError("");
+    setTypedAnswer("");
+    setRetryAvailable(false);
+    capturing.current = false;
+    questionSpoken.current = false;
+    clarificationUsedRef.current = false;
+    awaitingClarificationRef.current = false;
+    reconnectAttemptRef.current = 0;
+
+    if (joinedOnceRef.current && streamRef.current) {
+      void join();
+    } else {
+      setRoomState("preflight");
+    }
+  }, [attempt.id, processing]);
+
+  useEffect(() => {
+    if (questionOnly && state === "ready") onQuestionReadyRef.current?.();
+  }, [attempt.id, questionOnly, state]);
+
+  useEffect(() => {
+    if (processing || disabled || questionOnly || state !== "review") return;
+    const timer = window.setTimeout(() => {
+      const answer = transcriptRef.current.trim();
+      if (answer) onFinalAnswerRef.current(answer);
+    }, 5000);
+    return () => window.clearTimeout(timer);
+  }, [attempt.id, disabled, processing, questionOnly, state]);
 
   async function playPcm(data: string, mimeType = "audio/pcm;rate=24000") {
     const context = audioRef.current;
@@ -722,6 +781,7 @@ export default function LiveInterviewRoom({
       const socket = new WebSocket(
         `${websocketProtocol}//${window.location.host}/api/interviews/${encodeURIComponent(interviewId)}/live/?tab_id=${encodeURIComponent(tabId)}&attempt_id=${encodeURIComponent(attempt.id)}`,
       );
+      joinedOnceRef.current = true;
       socketRef.current = socket;
       socket.onopen = () => {
         socket.send(
@@ -892,7 +952,9 @@ export default function LiveInterviewRoom({
       <div className="live-room-bar">
         <span className="live-room-status">
           <i className={state === "listening" ? "listening" : ""} />
-          {state === "preflight"
+          {state === "evaluating"
+            ? "Evaluating your answer"
+            : state === "preflight"
             ? "Device check needed"
             : state === "checking"
               ? "Checking devices"
@@ -999,7 +1061,29 @@ export default function LiveInterviewRoom({
         </div>
       </article>
       {error && <ErrorBox message={error} />}
-      {state === "fallback" ? (
+      {processing ? (
+        <div className="panel processing-panel" role="status" aria-live="polite">
+          <div className="processing-lens">
+            <ScanLine size={35} />
+          </div>
+          <Badge tone="green">Answer received</Badge>
+          <h2>
+            {processingFailed
+              ? "Your answer is safe."
+              : "A moment to consider your answer."}
+          </h2>
+          <p>
+            {processingFailed
+              ? "Evaluation couldn’t finish. Retry it here; your camera and microphone stay ready."
+              : "We’re reviewing your response. Your camera and microphone stay ready, and the next question will begin automatically."}
+          </p>
+          {processingFailed && (
+            <Button onClick={onRetryEvaluation} disabled={!onRetryEvaluation}>
+              Retry evaluation
+            </Button>
+          )}
+        </div>
+      ) : state === "fallback" ? (
         questionOnly ? (
           <div className="live-room-actions">
             <p>
@@ -1176,16 +1260,20 @@ export default function LiveInterviewRoom({
       ) : questionOnly ? (
         <div className="live-room-actions">
           <p>
-            {state === "ready"
-              ? "Gemini has asked the visible prompt. Open the coding workspace when you are ready."
+            {workspaceReady
+              ? "The prompt is ready. Your coding workspace is below."
+              : state === "ready"
+                ? "Gemini has asked the visible prompt. Open the coding workspace when you are ready."
               : "Gemini is preparing the visible coding prompt."}
           </p>
-          <Button
-            onClick={() => onQuestionReady?.()}
-            disabled={disabled || state !== "ready"}
-          >
-            Open coding workspace
-          </Button>
+          {!workspaceReady && (
+            <Button
+              onClick={() => onQuestionReady?.()}
+              disabled={disabled || state !== "ready"}
+            >
+              Open coding workspace
+            </Button>
+          )}
         </div>
       ) : state === "review" ? (
         <div className="live-review-actions">
@@ -1209,7 +1297,8 @@ export default function LiveInterviewRoom({
             </Button>
           </div>
           <small>
-            You may submit now or let the interviewer ask one focused follow-up.
+            Unless you ask one optional clarification, this answer submits
+            automatically in 5 seconds.
           </small>
         </div>
       ) : (
