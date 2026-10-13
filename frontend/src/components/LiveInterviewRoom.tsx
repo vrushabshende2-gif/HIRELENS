@@ -13,7 +13,7 @@ import {
   VideoOff,
   Volume2,
 } from "lucide-react";
-import { send } from "../api";
+import { ApiError, send } from "../api";
 import LensArtwork from "./LensArtwork";
 import { Button, ErrorBox } from "../ui";
 
@@ -66,6 +66,32 @@ type ExtendedNavigator = Navigator & {
     downlink?: number;
     rtt?: number;
   };
+};
+
+type SpeechRecognitionLike = {
+  lang: string;
+  continuous: boolean;
+  interimResults: boolean;
+  onresult: ((event: Event) => void) | null;
+  onerror: ((event: Event) => void) | null;
+  onend: (() => void) | null;
+  start: () => void;
+  stop: () => void;
+};
+
+type SpeechRecognitionConstructor = new () => SpeechRecognitionLike;
+
+type SpeechResultEvent = Event & {
+  resultIndex: number;
+  results: ArrayLike<{
+    isFinal: boolean;
+    0: { transcript: string };
+  }>;
+};
+
+type SpeechWindow = Window & {
+  SpeechRecognition?: SpeechRecognitionConstructor;
+  webkitSpeechRecognition?: SpeechRecognitionConstructor;
 };
 
 function mergeTranscript(current: string, incoming: string) {
@@ -144,6 +170,7 @@ export default function LiveInterviewRoom({
   const clarificationUsedRef = useRef(false);
   const awaitingClarificationRef = useRef(false);
   const finishRef = useRef<() => void>(() => undefined);
+  const fallbackRecognitionRef = useRef<SpeechRecognitionLike | null>(null);
   const [state, setState] = useState<RoomState>("preflight");
   const [error, setError] = useState("");
   const [caption, setCaption] = useState("");
@@ -157,6 +184,8 @@ export default function LiveInterviewRoom({
   const [cameraId, setCameraId] = useState("");
   const [microphoneId, setMicrophoneId] = useState("");
   const [retryAvailable, setRetryAvailable] = useState(false);
+  const [speechAnswering, setSpeechAnswering] = useState(false);
+  const [speechError, setSpeechError] = useState("");
   const [network, setNetwork] = useState<NetworkState>({
     online: navigator.onLine,
     detail: "Checking connection…",
@@ -329,6 +358,9 @@ export default function LiveInterviewRoom({
     reconnectTimerRef.current = null;
     finalizeTimerRef.current = null;
     intentionalCloseRef.current = true;
+    fallbackRecognitionRef.current?.stop();
+    fallbackRecognitionRef.current = null;
+    setSpeechAnswering(false);
     stopAudioCapture();
     stopAiAudio();
     stopMonitor();
@@ -354,6 +386,7 @@ export default function LiveInterviewRoom({
     setRetryAvailable(true);
     setError(message);
     setRoomState("fallback");
+    if (!questionSpoken.current) window.setTimeout(() => speakFallback(), 150);
   }
 
   useEffect(() => {
@@ -431,10 +464,84 @@ export default function LiveInterviewRoom({
       `${attempt.title}. ${attempt.prompt}`,
     );
     utterance.rate = 0.94;
-    utterance.onstart = () => setRoomState("speaking");
-    utterance.onend = () => setRoomState("ready");
-    utterance.onerror = () => setRoomState("ready");
+    utterance.onstart = () => {
+      if (stateRef.current !== "fallback") setRoomState("speaking");
+    };
+    utterance.onend = () => {
+      if (stateRef.current !== "fallback") setRoomState("ready");
+    };
+    utterance.onerror = () => {
+      if (stateRef.current !== "fallback") setRoomState("ready");
+    };
     window.speechSynthesis.speak(utterance);
+  }
+
+  function replayQuestionAloud() {
+    if (!window.speechSynthesis) {
+      setSpeechError("This browser does not provide spoken question playback.");
+      return;
+    }
+    window.speechSynthesis.cancel();
+    questionSpoken.current = false;
+    speakFallback();
+  }
+
+  function startFallbackSpeechAnswer() {
+    const speechWindow = window as SpeechWindow;
+    const Recognition =
+      speechWindow.SpeechRecognition || speechWindow.webkitSpeechRecognition;
+    if (!Recognition) {
+      setSpeechError(
+        "Voice answers are not supported in this browser. Use the answer box below.",
+      );
+      return;
+    }
+    if (disabled || fallbackRecognitionRef.current) return;
+    setSpeechError("");
+    const recognition = new Recognition();
+    recognition.lang = navigator.language || "en-US";
+    recognition.continuous = true;
+    recognition.interimResults = false;
+    recognition.onresult = (rawEvent) => {
+      const event = rawEvent as SpeechResultEvent;
+      let recognized = "";
+      for (let i = event.resultIndex; i < event.results.length; i += 1) {
+        recognized += `${event.results[i][0].transcript} `;
+      }
+      if (recognized.trim()) {
+        setTypedAnswer((current) => mergeTranscript(current, recognized));
+        setSpeechError("");
+      }
+    };
+    recognition.onerror = (event) => {
+      const errorName = (event as Event & { error?: string }).error;
+      setSpeechError(
+        errorName === "not-allowed"
+          ? "Allow microphone access to answer aloud, or type your answer."
+          : "Voice transcription stopped. Retry or continue in the answer box.",
+      );
+    };
+    recognition.onend = () => {
+      fallbackRecognitionRef.current = null;
+      setSpeechAnswering(false);
+    };
+    fallbackRecognitionRef.current = recognition;
+    try {
+      recognition.start();
+      setSpeechAnswering(true);
+    } catch {
+      fallbackRecognitionRef.current = null;
+      setSpeechAnswering(false);
+      setSpeechError(
+        "Voice transcription could not start. Type your answer instead.",
+      );
+    }
+  }
+
+  function stopFallbackSpeechAnswer() {
+    fallbackRecognitionRef.current?.stop();
+    fallbackRecognitionRef.current = null;
+    setSpeechAnswering(false);
   }
 
   function liveErrorMessage(error: Record<string, any>) {
@@ -648,11 +755,16 @@ export default function LiveInterviewRoom({
         scheduleReconnect(reason);
       };
     } catch (e) {
+      const providerMessage = e instanceof ApiError ? e.message : "";
       if (reconnecting) {
-        scheduleReconnect("The Gemini connection is still unavailable.");
+        scheduleReconnect(
+          providerMessage ||
+            "The live session could not be renewed. Wait briefly, then retry live audio.",
+        );
       } else {
         moveToFallback(
-          "The live room could not start. Your camera and microphone are still connected; retry live audio or use the typed response.",
+          providerMessage ||
+            "The live room could not start. Your camera and microphone are still connected; retry live audio or use the spoken or typed response.",
         );
       }
     }
@@ -903,14 +1015,42 @@ export default function LiveInterviewRoom({
               <WifiOff size={18} />
               <strong>Live audio needs a retry</strong>
               <span>
-                Your camera and microphone stay local and are not recorded.
-                Retry live audio, or use a typed accessibility response if the
-                live connection remains unavailable.
+                Your camera and microphone stay local and are not recorded. The
+                question can be read aloud by your browser, and you can answer
+                aloud or type while we recover the live connection.
               </span>
             </div>
+            <div className="live-review-buttons">
+              <Button variant="secondary" onClick={replayQuestionAloud}>
+                <Volume2 size={16} /> Hear question aloud
+              </Button>
+              {speechAnswering ? (
+                <Button variant="danger" onClick={stopFallbackSpeechAnswer}>
+                  <CircleStop size={16} /> Stop voice answer
+                </Button>
+              ) : (
+                <Button onClick={startFallbackSpeechAnswer} disabled={disabled}>
+                  <Mic size={16} /> Answer aloud
+                </Button>
+              )}
+            </div>
+            {speechAnswering && (
+              <p className="muted small" role="status">
+                Listening in your browser. Review the transcript before
+                continuing.
+              </p>
+            )}
+            {speechError && <ErrorBox message={speechError} />}
+            <p className="muted small">
+              Browser voice transcription may use your browser’s speech service.
+              HireLens stores only the transcript.
+            </p>
             <textarea
               value={typedAnswer}
-              onChange={(event) => setTypedAnswer(event.target.value)}
+              onChange={(event) => {
+                setTypedAnswer(event.target.value);
+                setSpeechError("");
+              }}
               placeholder="Write your answer here…"
               maxLength={16000}
               disabled={disabled}
