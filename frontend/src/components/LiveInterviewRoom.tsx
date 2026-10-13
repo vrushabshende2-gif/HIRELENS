@@ -13,16 +13,9 @@ import {
   VideoOff,
   Volume2,
 } from "lucide-react";
-import { ApiError, send } from "../api";
+import { ApiError } from "../api";
 import LensArtwork from "./LensArtwork";
 import { Button, ErrorBox } from "../ui";
-
-type LiveToken = {
-  token: string;
-  model: string;
-  expires_at: string;
-  attempt_id: string;
-};
 
 type LiveAttempt = {
   id: string;
@@ -546,10 +539,26 @@ export default function LiveInterviewRoom({
 
   function liveErrorMessage(error: Record<string, any>) {
     const code = String(error.code || "");
-    if (code === "429" || code.toLowerCase().includes("quota"))
+    if (
+      code === "429" ||
+      code.toLowerCase().includes("quota") ||
+      code === "ai_rate_limited" ||
+      code === "ai_quota_wait"
+    )
       return "Gemini is temporarily at capacity. Your camera and microphone are still connected; retry live audio in a moment.";
-    if (code === "401" || code === "403")
+    if (
+      code === "401" ||
+      code === "403" ||
+      code === "ai_configuration_error" ||
+      code === "ai_not_configured"
+    )
       return "The live interviewer session was not authorized. Check the Gemini API configuration and retry.";
+    if (code === "session_expired")
+      return "Your candidate session expired. Sign in again, then reopen the invitation.";
+    if (code === "interview_tab_conflict")
+      return "This interview is open in another tab. Return to that tab to continue.";
+    if (code === "live_rate_limited")
+      return "Too many connection retries. Wait a minute, then retry live audio.";
     return "The live interviewer connection was interrupted. Your camera and microphone are still connected; retry live audio to continue.";
   }
 
@@ -708,32 +717,16 @@ export default function LiveInterviewRoom({
         await context.resume();
       }
       if (!processorRef.current) beginAudioCapture(stream);
-      const live = await send<LiveToken>(
-        `/interviews/${interviewId}/live-token/`,
-        {
-          tab_id: tabId,
-        },
-      );
-      if (live.attempt_id !== attempt.id)
-        throw new Error(
-          "The question changed. Refresh to join the current turn.",
-        );
+      const websocketProtocol =
+        window.location.protocol === "https:" ? "wss:" : "ws:";
       const socket = new WebSocket(
-        `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContentConstrained?access_token=${encodeURIComponent(live.token)}`,
+        `${websocketProtocol}//${window.location.host}/api/interviews/${encodeURIComponent(interviewId)}/live/?tab_id=${encodeURIComponent(tabId)}&attempt_id=${encodeURIComponent(attempt.id)}`,
       );
       socketRef.current = socket;
       socket.onopen = () => {
         socket.send(
           JSON.stringify({
-            setup: {
-              model: `models/${live.model}`,
-              generationConfig: { responseModalities: ["AUDIO"] },
-              inputAudioTranscription: {},
-              outputAudioTranscription: {},
-              realtimeInputConfig: {
-                automaticActivityDetection: { disabled: true },
-              },
-            },
+            setup: {},
           }),
         );
       };
@@ -748,7 +741,15 @@ export default function LiveInterviewRoom({
         const closeCode = event.code;
         const reason =
           closeCode === 1006
-            ? "The browser could not reach Gemini over WebSocket. Check firewall, VPN, or ad-blocker settings."
+            ? "The live connection closed before setup completed. Retry live audio; HireLens is relaying the Gemini session securely."
+            : closeCode === 4401
+              ? "Your candidate session expired. Sign in again, then reopen the invitation."
+              : closeCode === 4409
+                ? "The active question changed. Refresh the interview to continue."
+                : closeCode === 4429
+                  ? "Too many live connection retries. Wait a minute, then retry."
+                  : closeCode === 4400
+                    ? "The live session setup was incomplete. Retry live audio."
             : closeCode === 1008
               ? "Gemini rejected the live session configuration. Retry live audio to request a fresh session."
               : "The Gemini connection dropped.";

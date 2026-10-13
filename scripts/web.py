@@ -4,21 +4,20 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "backend.config.settings")
-from backend.config.wsgi import application
-from waitress import serve
+from backend.config.asgi import application
+import uvicorn
 
-options = {}
-if os.getenv("RENDER"):
-    options = {
-        "trusted_proxy": "*",
-        "trusted_proxy_count": 1,
-        "trusted_proxy_headers": "x-forwarded-for x-forwarded-proto",
-    }
-serve(
+uvicorn.run(
     application,
     host=sys.argv[1],
     port=int(sys.argv[2]),
-    threads=4,
-    max_request_body_size=262144,
-    **options,
+    ws="websockets",
+    ws_max_size=262144,
+    ws_max_queue=16,
+    limit_concurrency=200,
+    timeout_keep_alive=10,
+    timeout_graceful_shutdown=10,
+    proxy_headers=bool(os.getenv("RENDER")),
+    forwarded_allow_ips="*" if os.getenv("RENDER") else "127.0.0.1",
+    access_log=False,
 )

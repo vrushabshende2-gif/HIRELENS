@@ -109,8 +109,19 @@ class SecurityHeadersMiddleware:
         response = self.get_response(request)
         response["X-Frame-Options"] = "DENY"
         response["Permissions-Policy"] = "camera=(self), microphone=(self), geolocation=()"
+        live_origin = settings.PUBLIC_URL.replace("https://", "wss://").replace(
+            "http://", "ws://"
+        )
+        connect_sources = ["'self'", live_origin]
+        if settings.DEBUG:
+            connect_sources.extend(
+                ["ws://localhost:5173", "ws://127.0.0.1:5173"]
+            )
         response["Content-Security-Policy"] = (
-            "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self' wss://generativelanguage.googleapis.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+            "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
+            "img-src 'self' data:; font-src 'self'; connect-src "
+            + " ".join(connect_sources)
+            + "; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
         )
         if request.path.startswith("/api/"):
             response["Cache-Control"] = "no-store"

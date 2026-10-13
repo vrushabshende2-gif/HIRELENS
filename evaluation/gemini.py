@@ -64,7 +64,9 @@ def create_live_token(question):
     )
     payload = {
         "uses": 1,
-        "expireTime": (now + timedelta(minutes=20)).isoformat().replace("+00:00", "Z"),
+        # One room session must last through a long answer. Reconnect attempts
+        # still require the shorter newSessionExpireTime below.
+        "expireTime": (now + timedelta(minutes=60)).isoformat().replace("+00:00", "Z"),
         "newSessionExpireTime": (now + timedelta(seconds=90)).isoformat().replace("+00:00", "Z"),
         # A complete server-side setup locks model behavior and the approved
         # prompt. Gemini ignores the browser setup for this constrained session.
