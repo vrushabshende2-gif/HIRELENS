@@ -462,33 +462,28 @@ def demo_candidate_access(request, pk):
         raise ValidationError("Demo candidate access is only available for demonstration drives.")
     if drive.status != "active":
         raise Conflict("Publish the drive before creating demo candidate access.")
+    # Every issuance must be a clean candidate session. Reusing one synthetic
+    # account and updating its invitation preserves the old one-to-one Interview
+    # row, so a freshly copied link silently resumes a previous demo attempt.
     suffix = str(organization.pk).replace("-", "")[:12]
-    email = f"demo-candidate-{suffix}@demo.hirelens.test"
+    issue_id = secrets.token_hex(6)
+    email = f"demo-candidate-{suffix}-{issue_id}@demo.hirelens.test"
     password = secrets.token_urlsafe(16)
-    candidate, created = User.objects.get_or_create(
+    candidate = User.objects.create_user(
+        username=f"demo-candidate-{suffix}-{issue_id}",
         email=email,
-        defaults={
-            "username": secrets.token_hex(16),
-            "first_name": "Demo Candidate",
-            "role": "candidate",
-            "verified": True,
-        },
+        password=password,
+        first_name="Demo Candidate",
+        role="candidate",
+        verified=True,
     )
-    if candidate.role != "candidate":
-        raise Conflict("The private demo candidate identity is unavailable.")
-    candidate.first_name = "Demo Candidate"
-    candidate.verified = True
-    candidate.set_password(password)
-    candidate.save(update_fields=["first_name", "verified", "password"])
     token = secrets.token_urlsafe(32)
-    invitation, _ = Invitation.objects.update_or_create(
+    invitation = Invitation.objects.create(
         drive=drive,
         email=email,
-        defaults={
-            "name": "Demo Candidate",
-            "token_hash": digest(token),
-            "expires_at": drive.expires_at,
-        },
+        name="Demo Candidate",
+        token_hash=digest(token),
+        expires_at=drive.expires_at,
     )
     audit(request, "demo_candidate_access_created", invitation.pk)
     return Response(
@@ -497,7 +492,7 @@ def demo_candidate_access(request, pk):
             "password": password,
             "invite_url": f"{settings.PUBLIC_URL}/invite#token={token}",
             "expires_at": invitation.expires_at,
-            "reused_account": not created,
+            "reused_account": False,
         },
         status=201,
     )

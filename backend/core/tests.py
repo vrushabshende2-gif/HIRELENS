@@ -18,6 +18,7 @@ from .models import (
     Drive,
     Invitation,
     Interview,
+    Attempt,
     Evaluation,
     Job,
     WorkerStatus,
@@ -321,6 +322,26 @@ class HireLensTests(TestCase):
         self.assertTrue(demo.verified)
         invitation = Invitation.objects.get(drive=self.drive, email=demo.email)
         self.assertIsNone(invitation.redeemed_at)
+        previous = Interview.objects.create(invitation=invitation, candidate=demo)
+        Attempt.objects.create(
+            interview=previous,
+            ordinal=1,
+            question=self.drive.question_pool[0],
+            answer="A previous demo answer.",
+            submitted_at=timezone.now(),
+        )
+
+        # Reissuing demo access must never point the next tester at a previous
+        # partial/completed Interview attached to the old candidate invitation.
+        second = self.post(f"/api/drives/{self.drive.pk}/demo-candidate/")
+        self.assertEqual(second.status_code, 201, second.data)
+        self.assertNotEqual(second.data["email"], response.data["email"])
+        next_invitation = Invitation.objects.get(
+            drive=self.drive, email=second.data["email"]
+        )
+        self.assertIsNone(next_invitation.redeemed_at)
+        self.assertFalse(Interview.objects.filter(invitation=next_invitation).exists())
+        self.assertEqual(previous.attempts.count(), 1)
 
     def test_cross_organization_resource_access(self):
         self.login(self.other)

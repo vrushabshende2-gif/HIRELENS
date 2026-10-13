@@ -368,7 +368,7 @@ export function DriveDetail() {
         open={demoAccessOpen}
         onOpenChange={setDemoAccessOpen}
         title="Private demo candidate"
-        description="Use this synthetic candidate identity to test the interview with one email account."
+        description="Create a fresh synthetic candidate login and clean interview session."
       >
         {demoAccessOpen && <DemoAccessForm driveId={data.id} />}
       </Modal>
@@ -418,7 +418,7 @@ function DemoAccessForm({ driveId }: { driveId: string }) {
       <div className="form-stack">
         <div className="notice">
           <KeyRound size={16} />
-          This creates a verified synthetic candidate and never sends an email. Use the credentials in a separate browser window.
+          Each access creates a fresh verified demo candidate and a clean interview session. Nothing is emailed; use the credentials in a separate browser window.
         </div>
         {error && <ErrorBox message={error} />}
         <div className="form-actions">
