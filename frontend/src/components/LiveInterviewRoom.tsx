@@ -837,8 +837,43 @@ export default function LiveInterviewRoom({
     }
   }
 
-  function startAnswer() {
+  async function startAnswer() {
     if (disabled || socketRef.current?.readyState !== WebSocket.OPEN) return;
+    const stream = streamRef.current;
+    const microphone = stream?.getAudioTracks()[0];
+    if (!microphone || microphone.readyState !== "live") {
+      setError(
+        "Your microphone is no longer available. Recheck your microphone, then rejoin the interview.",
+      );
+      return;
+    }
+    if (micMuted || !microphone.enabled) {
+      setError(
+        "Your microphone is muted. Unmute it before starting your answer.",
+      );
+      return;
+    }
+    if (microphone.muted) {
+      setError(
+        "Your browser is not receiving sound from this microphone. Check the device or operating-system mute, then try again.",
+      );
+      return;
+    }
+    try {
+      const context = audioRef.current;
+      if (!context) throw new Error("Audio capture is not ready.");
+      // Browsers may suspend Web Audio after the interviewer finishes speaking.
+      // Resume from this user gesture before sending any candidate audio frames.
+      if (context.state !== "running") await context.resume();
+      if (context.state !== "running")
+        throw new Error("The browser kept audio capture suspended.");
+      if (!processorRef.current) beginAudioCapture(stream);
+    } catch {
+      setError(
+        "Microphone audio could not start. Check browser microphone access and press Start answering again.",
+      );
+      return;
+    }
     window.speechSynthesis?.cancel();
     stopAiAudio();
     setCaption("");
@@ -1340,17 +1375,20 @@ export default function LiveInterviewRoom({
               onClick={startAnswer}
               disabled={
                 disabled ||
+                micMuted ||
                 state === "connecting" ||
                 state === "reconnecting" ||
                 state === "finishing"
               }
             >
               <Mic size={17} />
-              {state === "speaking"
-                ? "Interrupt & start answering"
-                : state === "clarifying"
-                  ? "Answer clarification"
-                  : "Start answering"}
+              {micMuted
+                ? "Unmute microphone to answer"
+                : state === "speaking"
+                  ? "Interrupt & start answering"
+                  : state === "clarifying"
+                    ? "Answer clarification"
+                    : "Start answering"}
             </Button>
           )}
         </div>
