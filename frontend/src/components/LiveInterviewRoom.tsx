@@ -162,6 +162,7 @@ export default function LiveInterviewRoom({
   const capturing = useRef(false);
   const transcriptRef = useRef("");
   const questionSpoken = useRef(false);
+  const candidateHasAnsweredRef = useRef(false);
   const fallbackTimer = useRef<number | null>(null);
   const finalizeTimerRef = useRef<number | null>(null);
   const intentionalCloseRef = useRef(false);
@@ -436,6 +437,7 @@ export default function LiveInterviewRoom({
     setRetryAvailable(false);
     capturing.current = false;
     questionSpoken.current = false;
+    candidateHasAnsweredRef.current = false;
     clarificationUsedRef.current = false;
     awaitingClarificationRef.current = false;
     reconnectAttemptRef.current = 0;
@@ -664,13 +666,16 @@ export default function LiveInterviewRoom({
     const input = content.inputTranscription || content.input_transcription;
     if (input?.text) updateTranscript(input.text);
     const output = content.outputTranscription || content.output_transcription;
-    if (output?.text) {
+    const interviewerOutputAllowed =
+      !candidateHasAnsweredRef.current || awaitingClarificationRef.current;
+    if (output?.text && interviewerOutputAllowed) {
       setCaption((current) => mergeTranscript(current, output.text));
     }
     const parts = content.modelTurn?.parts || content.model_turn?.parts || [];
     for (const part of parts) {
       const audio = part.inlineData || part.inline_data;
-      if (audio?.data) playPcm(audio.data, audio.mimeType || audio.mime_type);
+      if (audio?.data && interviewerOutputAllowed)
+        playPcm(audio.data, audio.mimeType || audio.mime_type);
     }
     if (
       content.turnComplete &&
@@ -766,6 +771,7 @@ export default function LiveInterviewRoom({
       reconnectAttemptRef.current = 0;
       clarificationUsedRef.current = false;
       awaitingClarificationRef.current = false;
+      candidateHasAnsweredRef.current = false;
     }
     stopMonitor();
     setRoomState(reconnecting ? "reconnecting" : "connecting");
@@ -836,6 +842,7 @@ export default function LiveInterviewRoom({
     window.speechSynthesis?.cancel();
     stopAiAudio();
     setCaption("");
+    candidateHasAnsweredRef.current = true;
     if (awaitingClarificationRef.current) {
       transcriptRef.current =
         `${transcriptRef.current.trim()} Clarification:`.trim();
@@ -1297,8 +1304,8 @@ export default function LiveInterviewRoom({
             </Button>
           </div>
           <small>
-            Unless you ask one optional clarification, this answer submits
-            automatically in 5 seconds.
+            Your answer submits automatically in 5 seconds. After evaluation,
+            the next question starts here without another device check.
           </small>
         </div>
       ) : (

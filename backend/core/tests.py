@@ -564,6 +564,11 @@ class HireLensTests(TestCase):
             interview.attempts.first().question["prompt"],
             payload["bidiGenerateContentSetup"]["systemInstruction"]["parts"][0]["text"],
         )
+        interviewer_rules = payload["bidiGenerateContentSetup"]["systemInstruction"][
+            "parts"
+        ][0]["text"]
+        self.assertIn("never end the interview", interviewer_rules)
+        self.assertIn("completion message", interviewer_rules)
         headers = self.client.get("/api/interviews/").headers
         self.assertIn("camera=(self)", headers["Permissions-Policy"])
         self.assertIn("wss://generativelanguage.googleapis.com", headers["Content-Security-Policy"])
