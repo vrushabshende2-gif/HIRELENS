@@ -4,6 +4,7 @@ import uuid
 from collections import Counter
 from django.conf import settings
 from django.db import transaction, IntegrityError
+from django.db.models import BooleanField, Case, Count, Value, When
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework.exceptions import ValidationError, PermissionDenied
@@ -33,7 +34,7 @@ from .serializers import (
 from .security import endpoint, request_limit, digest, audit, Conflict
 from .reporting import report_data, pdf_response, csv_response
 from .interviews import worker_ready
-from .catalog import CATALOG_COUNT, canonical_topic, seed_catalog_batch
+from .catalog import CATALOG_COUNT, CATALOG_PREFIX, SUGGESTION_GROUPS, canonical_topic, seed_catalog_batch
 
 
 def org(request):
@@ -292,7 +293,7 @@ def question_catalog(request):
             "created": 0,
             "total": Question.objects.filter(
                 organization=organization,
-                catalog_key__startswith="catalog-v1:",
+                catalog_key__startswith=CATALOG_PREFIX,
                 archived=False,
                 quality_status="active",
             ).count(),
@@ -300,6 +301,60 @@ def question_catalog(request):
         }
         result["complete"] = result["total"] >= CATALOG_COUNT
     return Response(result)
+
+
+@endpoint(["GET"], recruiter=True)
+def question_skills(request):
+    """Suggest only skills that have active, workspace-visible question coverage."""
+    organization = org(request)
+    query = request.query_params.get("q", "").strip()[:60]
+    normalized = canonical_topic(query) if query else ""
+    group_topics = next(
+        (
+            topics
+            for alias, topics in SUGGESTION_GROUPS.items()
+            if len(query) >= 2
+            and (alias.startswith(query.casefold()) or alias in query.casefold())
+        ),
+        [],
+    )
+    base = Question.objects.filter(
+        organization=organization, archived=False, quality_status="active"
+    ).annotate(
+        is_v2=Case(
+            When(catalog_key__startswith=CATALOG_PREFIX, then=Value(True)),
+            default=Value(False), output_field=BooleanField(),
+        ),
+        is_v1=Case(
+            When(catalog_key__startswith="catalog-v1:", then=Value(True)),
+            default=Value(False), output_field=BooleanField(),
+        ),
+    )
+    grouped = list(base.values("topic", "kind", "difficulty", "is_v2", "is_v1").annotate(count=Count("pk")))
+    v2_topics = {canonical_topic(row["topic"]) for row in grouped if row["is_v2"]}
+    coverage = {}
+    for row in grouped:
+        topic = row["topic"].strip()
+        if not topic:
+            continue
+        key = canonical_topic(topic)
+        if row["is_v1"] and key in v2_topics:
+            continue
+        if query and normalized.casefold() not in key.casefold() and query.casefold() not in key.casefold() and key not in group_topics:
+            continue
+        item = coverage.setdefault(key, {"topic": key, "count": 0, "coding_count": 0, "difficulties": set()})
+        item["count"] += row["count"]
+        item["coding_count"] += row["count"] if row["kind"] == "code" else 0
+        item["difficulties"].add(row["difficulty"])
+    results = [
+        {**item, "difficulties": sorted(item["difficulties"])}
+        for item in coverage.values()
+    ]
+    results.sort(key=lambda item: (
+        0 if normalized and item["topic"].casefold() == normalized.casefold() else 1,
+        -item["count"], item["topic"].casefold(),
+    ))
+    return Response({"results": results[:12], "query": query})
 
 
 @endpoint(["GET", "POST"], recruiter=True)
@@ -373,18 +428,39 @@ def publish(request, pk):
             Question.objects.filter(
                 organization=drive.organization,
                 archived=False,
+                quality_status="active",
                 topic__in=topics,
                 difficulty__gte=position.difficulty_min,
                 difficulty__lte=position.difficulty_max,
             )
         )
+        replacement_topics = {
+            canonical_topic(q.topic) for q in pool
+            if (q.catalog_key or "").startswith(CATALOG_PREFIX)
+        }
+        pool = [
+            q for q in pool
+            if not ((q.catalog_key or "").startswith("catalog-v1:") and canonical_topic(q.topic) in replacement_topics)
+        ]
         if len(pool) < drive.question_count or drive.question_count < len(topics):
+            available = {topic: sum(canonical_topic(q.topic) == topic for q in pool) for topic in topics}
+            missing = [topic for topic, count in available.items() if count == 0]
+            if missing:
+                raise ValidationError(
+                    "No active questions match: " + ", ".join(missing) +
+                    ". Choose a suggested skill with question coverage or load the expanded catalog."
+                )
             raise ValidationError(
-                "This drive needs more active questions for its target topics. Open Question Bank and initialize the governed catalog, then use matching catalog topic names such as Machine Learning or Python."
+                f"Question coverage is too small ({len(pool)} matching questions for {drive.question_count} requested, across {len(topics)} skills). Lower the question count, add questions, or load the catalog."
             )
-        for topic in topics:
-            if not any(q.topic == topic and q.difficulty == 0 for q in pool):
-                raise ValidationError(f"Add a medium question for {topic} before publishing.")
+        missing_medium = [
+            topic for topic in topics
+            if not any(canonical_topic(q.topic) == topic and q.difficulty == 0 for q in pool)
+        ]
+        if missing_medium:
+            raise ValidationError(
+                "No medium-difficulty question is available for: " + ", ".join(missing_medium) + "."
+            )
         drive.question_pool = [snapshot(q) for q in pool]
         drive.policy = {
             "title": position.title,

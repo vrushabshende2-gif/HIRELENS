@@ -47,10 +47,13 @@ export default function Questions() {
     [archive, setArchive] = useState<Question | null>(null),
     [archiveError, setArchiveError] = useState(""),
     toast = useToast();
-  const { data, error, loading, reload } =
-    useResource<{ results: Question[]; count: number; next_offset: number | null }>(
-      `/questions/?limit=100&offset=${page * 100}&search=${encodeURIComponent(search)}${topic !== "all" ? `&topic=${encodeURIComponent(topic)}` : ""}${difficulty !== "all" ? `&difficulty=${difficulty}` : ""}`,
-    );
+  const { data, error, loading, reload } = useResource<{
+    results: Question[];
+    count: number;
+    next_offset: number | null;
+  }>(
+    `/questions/?limit=100&offset=${page * 100}&search=${encodeURIComponent(search)}${topic !== "all" ? `&topic=${encodeURIComponent(topic)}` : ""}${difficulty !== "all" ? `&difficulty=${difficulty}` : ""}`,
+  );
   const {
     data: catalog,
     error: catalogError,
@@ -58,7 +61,9 @@ export default function Questions() {
     reload: reloadCatalog,
   } = useResource<CatalogStatus>("/questions/catalog/");
   const [catalogBusy, setCatalogBusy] = useState(false);
-  const [catalogProgress, setCatalogProgress] = useState<CatalogStatus | null>(null);
+  const [catalogProgress, setCatalogProgress] = useState<CatalogStatus | null>(
+    null,
+  );
   const [catalogActionError, setCatalogActionError] = useState("");
   useEffect(() => setSearch(initialSearch), [initialSearch]);
   const rows = (data?.results || []).filter(
@@ -76,7 +81,7 @@ export default function Questions() {
     setCatalogActionError("");
     try {
       let progress = catalogProgress || catalog;
-      for (let attempt = 0; attempt < 12 && !progress?.complete; attempt += 1) {
+      for (let attempt = 0; attempt < 30 && !progress?.complete; attempt += 1) {
         progress = await api<CatalogStatus>(
           "/questions/catalog/",
           { method: "POST", body: "{}" },
@@ -133,11 +138,11 @@ export default function Questions() {
       <div className="summary-pills">
         <span>
           <BookOpen size={16} />
-          <strong>{data?.count || 0}</strong>{" "}
-          questions
+          <strong>{data?.count || 0}</strong> questions
         </span>
         <span>
-          <strong>{new Set(data?.results.map((q) => q.topic)).size}</strong> skill areas
+          <strong>{new Set(data?.results.map((q) => q.topic)).size}</strong>{" "}
+          skill areas
         </span>
         <span>
           <Code2 size={16} />
@@ -153,9 +158,11 @@ export default function Questions() {
             <Sparkles size={18} />
           </div>
           <div>
-            <strong>Finish your governed question library</strong>
+            <strong>Load the expanded skill catalog</strong>
             <p>
-              {catalogProgress?.total || catalog.total} of {catalog.expected} questions are ready. Load the catalog in safe batches so drives can meet topic coverage automatically.
+              {catalogProgress?.total || catalog.total} of {catalog.expected}{" "}
+              expanded questions are ready across 66 skills. Your current bank
+              stays available while the new tracks load.
             </p>
           </div>
           <Button
@@ -177,14 +184,20 @@ export default function Questions() {
         <div className="filter-bar">
           <SearchInput
             value={search}
-            onChange={(value) => { setSearch(value); setPage(0); }}
+            onChange={(value) => {
+              setSearch(value);
+              setPage(0);
+            }}
             placeholder="Search your question bank…"
           />
           <div className="filter-selects">
             <select
               aria-label="Filter by topic"
               value={topic}
-              onChange={(e) => { setTopic(e.target.value); setPage(0); }}
+              onChange={(e) => {
+                setTopic(e.target.value);
+                setPage(0);
+              }}
             >
               <option value="all">All topics</option>
               {[...new Set(data?.results.map((q) => q.topic))].map((t) => (
@@ -194,7 +207,10 @@ export default function Questions() {
             <select
               aria-label="Filter by difficulty"
               value={difficulty}
-              onChange={(e) => { setDifficulty(e.target.value); setPage(0); }}
+              onChange={(e) => {
+                setDifficulty(e.target.value);
+                setPage(0);
+              }}
             >
               <option value="all">All difficulties</option>
               <option value="-1">Easy</option>
@@ -317,10 +333,25 @@ export default function Questions() {
       </section>
       {data && data.count > 100 && (
         <div className="pagination-bar">
-          <span>Showing {page * 100 + 1}–{Math.min((page + 1) * 100, data.count)} of {data.count}</span>
+          <span>
+            Showing {page * 100 + 1}–{Math.min((page + 1) * 100, data.count)} of{" "}
+            {data.count}
+          </span>
           <div className="button-row">
-            <Button variant="secondary" onClick={() => setPage((value) => Math.max(0, value - 1))} disabled={page === 0}>Previous</Button>
-            <Button variant="secondary" onClick={() => setPage((value) => value + 1)} disabled={!data.next_offset}>Next</Button>
+            <Button
+              variant="secondary"
+              onClick={() => setPage((value) => Math.max(0, value - 1))}
+              disabled={page === 0}
+            >
+              Previous
+            </Button>
+            <Button
+              variant="secondary"
+              onClick={() => setPage((value) => value + 1)}
+              disabled={!data.next_offset}
+            >
+              Next
+            </Button>
           </div>
         </div>
       )}
@@ -487,6 +518,23 @@ function QuestionForm({
               <option value="javascript">JavaScript</option>
               <option value="typescript">TypeScript</option>
               <option value="python">Python</option>
+              <option value="html">HTML</option>
+              <option value="css">CSS</option>
+              <option value="sql">SQL</option>
+              <option value="java">Java</option>
+              <option value="go">Go</option>
+              <option value="csharp">C#</option>
+              <option value="rust">Rust</option>
+              <option value="swift">Swift</option>
+              <option value="kotlin">Kotlin</option>
+              <option value="dart">Dart</option>
+              <option value="ruby">Ruby</option>
+              <option value="php">PHP</option>
+              <option value="cpp">C/C++</option>
+              <option value="dockerfile">Dockerfile</option>
+              <option value="yaml">YAML</option>
+              <option value="hcl">HCL / Terraform</option>
+              <option value="bash">Bash</option>
             </select>
           </Field>
           <Field label="Starter code (optional)">

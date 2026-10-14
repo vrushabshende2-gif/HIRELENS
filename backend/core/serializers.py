@@ -131,7 +131,11 @@ class QuestionInput(serializers.ModelSerializer):
     code_checks = CheckInput(many=True, max_length=10, required=False)
     weight = FiniteFloatField(min_value=0.1, max_value=5)
     expected_seconds = serializers.IntegerField(min_value=30, max_value=900)
-    language = serializers.ChoiceField(choices=["javascript", "typescript", "python"])
+    language = serializers.ChoiceField(choices=[
+        "javascript", "typescript", "python", "html", "css", "sql", "java", "go",
+        "csharp", "rust", "swift", "kotlin", "dart", "ruby", "php", "cpp",
+        "dockerfile", "yaml", "hcl", "bash",
+    ])
 
     class Meta:
         model = Question

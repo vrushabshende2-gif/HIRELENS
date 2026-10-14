@@ -301,15 +301,49 @@ class HireLensTests(TestCase):
         seeded = self.post("/api/questions/catalog/")
         self.assertEqual(seeded.status_code, 200, seeded.data)
         self.assertGreater(seeded.data["created"], 0)
-        self.assertLessEqual(seeded.data["created"], 600)
+        self.assertLessEqual(seeded.data["created"], 300)
         self.assertEqual(
-            Question.objects.filter(organization=self.org, catalog_key__startswith="catalog-v1:").count(),
+            Question.objects.filter(organization=self.org, catalog_key__startswith="catalog-v2:").count(),
             seeded.data["created"],
         )
         self.login(self.other)
         other_status = self.client.get("/api/questions/catalog/")
         self.assertEqual(other_status.status_code, 200)
         self.assertEqual(other_status.data["total"], 0)
+
+    def test_skill_suggestions_only_show_live_question_bank_coverage(self):
+        from .catalog import make_question
+
+        Question.objects.create(
+            organization=self.org,
+            **make_question("HTML", "fundamentals", "intermediate", "implementation"),
+        )
+        Question.objects.create(
+            organization=self.org,
+            **make_question("HTML", "fundamentals", "intermediate", "explain"),
+        )
+        self.login(self.recruiter)
+        response = self.client.get("/api/questions/skills/?q=html")
+        self.assertEqual(response.status_code, 200)
+        html = next(option for option in response.data["results"] if option["topic"] == "HTML")
+        self.assertEqual(html["count"], 2)
+        self.assertEqual(html["coding_count"], 1)
+        self.assertIn(0, html["difficulties"])
+        self.login(self.other)
+        other = self.client.get("/api/questions/skills/?q=html")
+        self.assertEqual(other.status_code, 200)
+        self.assertEqual(other.data["results"], [])
+
+    def test_expanded_catalog_has_html_css_and_implementation_questions(self):
+        from .catalog import CATALOG_COUNT, TRACKS, iter_catalog, quality_issues
+
+        questions = list(iter_catalog())
+        self.assertEqual(len(questions), CATALOG_COUNT)
+        self.assertGreaterEqual(CATALOG_COUNT, 7000)
+        self.assertIn("HTML", TRACKS)
+        self.assertIn("CSS", TRACKS)
+        self.assertTrue(all(not quality_issues(q) for q in questions))
+        self.assertEqual(sum(q["kind"] == "code" for q in questions), CATALOG_COUNT // 2)
 
     def test_private_demo_candidate_access_works_with_one_email_account(self):
         self.login(self.recruiter)
@@ -414,6 +448,29 @@ class HireLensTests(TestCase):
         draft.refresh_from_db()
         self.assertEqual(draft.policy["skills"][0]["topic"], "Machine Learning")
         self.assertEqual(len(draft.question_pool), len(catalog_questions))
+
+    def test_html_css_position_publishes_from_matching_bank_topics(self):
+        from .catalog import competencies_for_track, make_question
+
+        skills = [{"topic": topic, "weight": 1, "minimum": 40} for topic in ["HTML", "CSS"]]
+        position = Position.objects.create(organization=self.org, title="Frontend Engineer", skills=skills)
+        for topic in ["HTML", "CSS"]:
+            competency = competencies_for_track(topic)[0]
+            for style in ["explain", "implementation"]:
+                Question.objects.create(
+                    organization=self.org,
+                    **make_question(topic, competency, "intermediate", style),
+                )
+        drive = Drive.objects.create(
+            organization=self.org, position=position, name="Frontend screening",
+            expires_at=self.drive.expires_at, question_count=3,
+        )
+        self.login(self.recruiter)
+        response = self.post(f"/api/drives/{drive.pk}/publish/")
+        self.assertEqual(response.status_code, 200, response.data)
+        drive.refresh_from_db()
+        self.assertEqual({skill["topic"] for skill in drive.policy["skills"]}, {"HTML", "CSS"})
+        self.assertEqual(len(drive.question_pool), 4)
 
     def test_invitation_wrong_email_expiry_and_missing_provider(self):
         self.login(self.candidate)

@@ -112,7 +112,7 @@ class SecurityHeadersMiddleware:
         live_origin = settings.PUBLIC_URL.replace("https://", "wss://").replace(
             "http://", "ws://"
         )
-        connect_sources = ["'self'", live_origin]
+        connect_sources = ["'self'", live_origin, "wss://generativelanguage.googleapis.com"]
         if settings.DEBUG:
             connect_sources.extend(
                 ["ws://localhost:5173", "ws://127.0.0.1:5173"]

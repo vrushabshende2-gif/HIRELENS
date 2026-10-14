@@ -34,7 +34,7 @@ export interface Question {
   topic: string;
   difficulty: number;
   kind: "text" | "code";
-  language: "javascript" | "typescript" | "python";
+  language: string;
   prompt: string;
   expected_answer: string;
   concepts: Concept[];
@@ -168,7 +168,13 @@ export interface Report {
     elapsed_seconds: number;
     issued_at: string;
     submitted_at: string | null;
-    selection_reason: { trigger?: string; explanation?: string; previous_score?: number | null; selected_difficulty?: number; topic_counts?: Record<string, number> };
+    selection_reason: {
+      trigger?: string;
+      explanation?: string;
+      previous_score?: number | null;
+      selected_difficulty?: number;
+      topic_counts?: Record<string, number>;
+    };
     clarification_count: number;
     evaluation: Evaluation | null;
   }[];

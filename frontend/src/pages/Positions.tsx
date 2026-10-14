@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import {
   Plus,
@@ -9,7 +9,7 @@ import {
   X,
 } from "lucide-react";
 import { Link } from "react-router-dom";
-import { send, useResource } from "../api";
+import { api, send, useResource } from "../api";
 import type { Position, Skill } from "../types";
 import {
   PageHeader,
@@ -22,6 +22,13 @@ import {
   Badge,
   useToast,
 } from "../ui";
+
+type SkillSuggestion = {
+  topic: string;
+  count: number;
+  coding_count: number;
+  difficulties: number[];
+};
 
 export default function Positions() {
   const { data, error, loading, reload } =
@@ -280,13 +287,10 @@ function PositionForm({
         </div>
         {skills.map((s, i) => (
           <div className="skill-form-row" key={i}>
-            <input
-              aria-label={`Skill ${i + 1}`}
-              required
-              placeholder="e.g. JavaScript"
+            <SkillTopicInput
               value={s.topic}
-              onChange={(e) => editSkill(i, "topic", e.target.value)}
-              maxLength={60}
+              label={`Skill ${i + 1}`}
+              onChange={(v) => editSkill(i, "topic", v)}
             />
             <input
               aria-label={`Weight for skill ${i + 1}`}
@@ -351,5 +355,166 @@ function PositionForm({
         </Button>
       </div>
     </form>
+  );
+}
+
+function SkillTopicInput({
+  value,
+  label,
+  onChange,
+}: {
+  value: string;
+  label: string;
+  onChange: (value: string) => void;
+}) {
+  const [suggestions, setSuggestions] = useState<SkillSuggestion[]>([]),
+    [open, setOpen] = useState(false),
+    [activeIndex, setActiveIndex] = useState(-1),
+    [loading, setLoading] = useState(false);
+  useEffect(() => {
+    const controller = new AbortController();
+    const query = value.trim();
+    if (!query) {
+      setSuggestions([]);
+      setOpen(false);
+      return () => controller.abort();
+    }
+    const timer = window.setTimeout(() => {
+      setLoading(true);
+      api<{ results: SkillSuggestion[] }>(
+        `/questions/skills/?q=${encodeURIComponent(query)}`,
+        { signal: controller.signal },
+      )
+        .then((response) => {
+          setSuggestions(response.results);
+          setActiveIndex(-1);
+          setOpen(true);
+        })
+        .catch((error) => {
+          if (error.name !== "AbortError") setSuggestions([]);
+        })
+        .finally(() => {
+          if (!controller.signal.aborted) setLoading(false);
+        });
+    }, 180);
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+    };
+  }, [value]);
+  const exact = suggestions.find(
+    (suggestion) =>
+      suggestion.topic.toLowerCase() === value.trim().toLowerCase(),
+  );
+  const optionId = (index: number) =>
+    `${label.replaceAll(" ", "-")}-skill-option-${index}`;
+  function choose(index: number) {
+    const suggestion = suggestions[index];
+    if (!suggestion) return;
+    onChange(suggestion.topic);
+    setOpen(false);
+  }
+  return (
+    <div className="skill-topic-field">
+      <input
+        aria-label={label}
+        aria-autocomplete="list"
+        aria-expanded={open && suggestions.length > 0}
+        aria-controls={`${label.replaceAll(" ", "-")}-skill-options`}
+        aria-activedescendant={
+          activeIndex >= 0 ? optionId(activeIndex) : undefined
+        }
+        role="combobox"
+        required
+        placeholder="Type a skill, e.g. HTML"
+        value={value}
+        onFocus={() => suggestions.length > 0 && setOpen(true)}
+        onBlur={() => window.setTimeout(() => setOpen(false), 120)}
+        onKeyDown={(event) => {
+          if (event.key === "ArrowDown" && suggestions.length) {
+            event.preventDefault();
+            setOpen(true);
+            setActiveIndex((index) => (index + 1) % suggestions.length);
+          } else if (event.key === "ArrowUp" && suggestions.length) {
+            event.preventDefault();
+            setOpen(true);
+            setActiveIndex((index) =>
+              index <= 0 ? suggestions.length - 1 : index - 1,
+            );
+          } else if (event.key === "Enter" && open && activeIndex >= 0) {
+            event.preventDefault();
+            choose(activeIndex);
+          } else if (event.key === "Escape") {
+            setOpen(false);
+          }
+        }}
+        onChange={(event) => onChange(event.target.value.slice(0, 60))}
+        maxLength={60}
+      />
+      {open && suggestions.length > 0 && (
+        <div
+          className="skill-suggestion-list"
+          role="listbox"
+          id={`${label.replaceAll(" ", "-")}-skill-options`}
+        >
+          {suggestions.map((suggestion, index) => (
+            <button
+              type="button"
+              role="option"
+              id={optionId(index)}
+              aria-selected={
+                activeIndex === index || suggestion.topic === value
+              }
+              key={suggestion.topic}
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => choose(index)}
+            >
+              <span>
+                <strong>{suggestion.topic}</strong>
+                <small>
+                  {suggestion.count} active questions ·{" "}
+                  {suggestion.coding_count} coding
+                </small>
+              </span>
+              <small>
+                {suggestion.difficulties
+                  .map((difficulty) =>
+                    difficulty < 0
+                      ? "Easy"
+                      : difficulty > 0
+                        ? "Hard"
+                        : "Medium",
+                  )
+                  .filter(
+                    (difficulty, index, all) =>
+                      all.indexOf(difficulty) === index,
+                  )
+                  .join(" · ")}
+              </small>
+            </button>
+          ))}
+        </div>
+      )}
+      {value.trim() && !loading && !exact && (
+        <small className="skill-coverage-hint uncovered">
+          No exact active question match. Choose a suggested skill or add
+          questions to the bank.
+        </small>
+      )}
+      {exact && (
+        <small className="skill-coverage-hint">
+          {exact.count} active questions · {exact.coding_count} coding · covered
+          at{" "}
+          {exact.difficulties
+            .map((difficulty) =>
+              difficulty < 0 ? "easy" : difficulty > 0 ? "hard" : "medium",
+            )
+            .filter(
+              (difficulty, index, all) => all.indexOf(difficulty) === index,
+            )
+            .join(", ")}
+        </small>
+      )}
+    </div>
   );
 }

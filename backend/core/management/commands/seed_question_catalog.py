@@ -1,11 +1,11 @@
 from django.core.management.base import BaseCommand, CommandError
 
-from backend.core.catalog import CATALOG_COUNT, iter_catalog, quality_issues
+from backend.core.catalog import CATALOG_COUNT, CATALOG_PREFIX, iter_catalog, quality_issues
 from backend.core.models import Question, User
 
 
 class Command(BaseCommand):
-    help = "Create the governed 4,320-question HireLens catalog for a recruiter workspace."
+    help = "Create the governed, versioned HireLens skill catalog for a recruiter workspace."
 
     def add_arguments(self, parser):
         parser.add_argument("--email", default="recruiter@example.com")
@@ -26,9 +26,13 @@ class Command(BaseCommand):
             return
         created = 0
         seen_prompts = set()
+        existing = set(Question.objects.filter(
+            organization=organization, catalog_key__startswith=CATALOG_PREFIX
+        ).values_list("catalog_key", flat=True))
+        batch = []
         for payload in iter_catalog():
             key = payload["catalog_key"]
-            if Question.objects.filter(organization=organization, catalog_key=key).exists():
+            if key in existing:
                 continue
             normalized = " ".join(payload["prompt"].lower().split())
             if normalized in seen_prompts:
@@ -37,14 +41,27 @@ class Command(BaseCommand):
             issues = quality_issues(payload)
             if issues:
                 raise CommandError(f"Quality checks failed for {key}: {', '.join(issues)}")
-            Question.objects.create(organization=organization, **payload)
-            created += 1
+            batch.append(Question(organization=organization, **payload))
+            existing.add(key)
+            if len(batch) >= 300:
+                Question.objects.bulk_create(batch, batch_size=100)
+                created += len(batch)
+                batch.clear()
+        if batch:
+            Question.objects.bulk_create(batch, batch_size=100)
+            created += len(batch)
         total = Question.objects.filter(
             organization=organization,
-            catalog_key__startswith="catalog-v1:",
+            catalog_key__startswith=CATALOG_PREFIX,
             archived=False,
             quality_status="active",
         ).count()
+        if total >= CATALOG_COUNT:
+            Question.objects.filter(
+                organization=organization,
+                catalog_key__startswith="catalog-v1:",
+                archived=False,
+            ).update(archived=True)
         self.stdout.write(
             self.style.SUCCESS(
                 f"Catalog ready: {total}/{CATALOG_COUNT} active questions ({created} new)."
