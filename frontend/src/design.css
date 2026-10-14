@@ -6538,6 +6538,7 @@ blockquote {
   position: absolute;
   z-index: 2;
   top: 10px;
+  bottom: auto;
   left: 10px;
   right: 10px;
   display: flex;
@@ -6545,6 +6546,8 @@ blockquote {
   align-items: center;
   color: #edecf0;
   background: #141827b8;
+  min-height: 34px;
+  padding: 6px 9px;
   border: 1px solid #ffffff1a;
   border-radius: 7px;
   backdrop-filter: blur(8px);
@@ -6566,6 +6569,11 @@ blockquote {
   left: 16px;
   right: 16px;
   bottom: 16px;
+  transform: none;
+  max-width: calc(100% - 32px);
+  max-height: 38%;
+  overflow-y: auto;
+  overflow-wrap: anywhere;
   margin: 0;
   padding: 9px 12px;
   color: #f7f5ef;
@@ -6641,15 +6649,18 @@ blockquote {
 }
 .live-question-card h2 {
   margin: 12px 0 8px;
+  overflow-wrap: anywhere;
   color: #282c40;
   font-family: var(--serif);
   font-size: clamp(29px, 3vw, 39px);
   font-weight: 400;
 }
 .live-question-card > p {
+  max-width: 100%;
   color: #4e5260;
   font-size: 14px;
   line-height: 1.75;
+  overflow-wrap: anywhere;
 }
 .live-question-note {
   display: flex;
@@ -7051,9 +7062,8 @@ blockquote {
     display: none;
   }
   .live-caption {
-    bottom: 30px;
-    max-height: 55px;
-    overflow: hidden;
+    bottom: 12px;
+    max-height: 42%;
     font-size: 9px;
   }
   .live-question-card {
