@@ -200,6 +200,11 @@ export function DriveDetail() {
         description="A clear view of every candidate, from invitation to decision."
         action={
           <div className="button-row">
+            {data.status !== "draft" && (
+              <Link className="button secondary" to={`/drives/${id}/live`}>
+                <Radio size={16} /> Live Monitor
+              </Link>
+            )}
             {data.status === "draft" ? (
               <>
                 <Button variant="secondary" onClick={() => setEditOpen(true)}>

@@ -5,13 +5,22 @@ from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 from django.shortcuts import get_object_or_404
-from rest_framework.exceptions import PermissionDenied, ValidationError
+from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from rest_framework.response import Response
 from evaluation.adaptive import select_question
 from evaluation.gemini import configured, create_live_token, ProviderError
 from .models import Invitation, Interview, Attempt, Job, WorkerStatus
-from .serializers import StartInput, AnswerInput, TabInput, LiveTokenInput, validated
+from .serializers import (
+    StartInput,
+    AnswerInput,
+    TabInput,
+    LiveTokenInput,
+    LiveMonitorTokenInput,
+    MonitoringConsentInput,
+    validated,
+)
 from .security import endpoint, request_limit, digest, Conflict, Unavailable, audit
+from .live_monitor import issue_token, livekit_configured, recruiter_can_monitor
 
 
 def worker_ready():
@@ -139,6 +148,9 @@ def state(interview):
         * interview.invitation.accommodation_multiplier,
         "instructions": drive.instructions,
         "stop_reason": interview.stop_reason,
+        "monitoring_consent": bool(interview.monitoring_consent_at),
+        "screen_share_consent": bool(interview.screen_share_consent_at),
+        "live_monitoring_available": livekit_configured(),
         "attempt": None,
         "processing": False,
         "processing_error": "",
@@ -191,6 +203,7 @@ def preview_invitation(request):
             "redeemed": bool(invite.redeemed_at),
             "demo_data": drive.demo_data,
             "ai_ready": configured() and worker_ready(),
+            "live_monitoring_available": livekit_configured(),
             "skills": [s["topic"] for s in drive.policy.get("skills", drive.position.skills)],
         }
     )
@@ -247,6 +260,8 @@ def start(request):
     data = validated(StartInput, request)
     if not data["consent"]:
         raise ValidationError("Please accept the interview instructions to continue.")
+    if not data["monitoring_consent"]:
+        raise ValidationError("Please review and accept the live camera visibility notice to continue.")
     invite = invitation_for_token(data["token"])
     if invite.email.lower() != request.user.email.lower():
         raise PermissionDenied("This invitation belongs to a different candidate account.")
@@ -277,6 +292,10 @@ def start(request):
             if not invite.redeemed_at:
                 invite.redeemed_at = existing.created_at
                 invite.save(update_fields=["redeemed_at"])
+            if not existing.monitoring_consent_at:
+                existing.monitoring_consent_at = timezone.now()
+                existing.save(update_fields=["monitoring_consent_at"])
+                audit(request, "live_camera_consent_accepted", existing.pk)
             interview = existing
             return Response({"id": str(interview.pk), "resumed": True})
         if not configured():
@@ -290,12 +309,74 @@ def start(request):
             candidate=request.user,
             active_tab=data["tab_id"],
             tab_seen_at=timezone.now(),
+            monitoring_consent_at=timezone.now(),
         )
         invite.redeemed_at = timezone.now()
         invite.save()
         next_attempt(interview)
     audit(request, "interview_started", interview.pk)
     return Response({"id": str(interview.pk)}, status=201)
+
+
+@endpoint(["POST"])
+def monitoring_consent(request, pk):
+    check_candidate(request)
+    data = validated(MonitoringConsentInput, request)
+    with transaction.atomic():
+        interview = get_interview(request, pk, True)
+        check_tab(interview, data["tab_id"])
+        if data["screen"] and not data["camera"]:
+            raise ValidationError("Camera visibility consent is required before screen sharing.")
+        now = timezone.now()
+        interview.monitoring_consent_at = now if data["camera"] else None
+        interview.screen_share_consent_at = now if data["screen"] else None
+        interview.save(update_fields=["monitoring_consent_at", "screen_share_consent_at"])
+    audit(request, "live_monitoring_consent_updated", interview.pk)
+    return Response(
+        {
+            "camera": bool(interview.monitoring_consent_at),
+            "screen": bool(interview.screen_share_consent_at),
+        }
+    )
+
+
+@endpoint(["POST"])
+def monitor_token(request, pk):
+    """Issue a brief camera publisher or read-only recruiter subscriber token."""
+    request_limit(request, "live_monitor_token", 120, 60)
+    request_limit(request, "live_monitor_token_hourly", 1000, 3600)
+    data = validated(LiveMonitorTokenInput, request)
+    if not livekit_configured():
+        raise Unavailable("Live video is temporarily unavailable. The interview can continue normally.")
+    interview = (
+        get_interview(request, pk)
+        if request.user.role == "candidate"
+        else get_object_or_404(
+            Interview.objects.select_related(
+                "candidate", "invitation__drive__organization"
+            ),
+            pk=pk,
+        )
+    )
+    if interview.status != "in_progress":
+        raise Conflict("This interview is no longer live.")
+    if request.user.role == "candidate":
+        if not interview.monitoring_consent_at:
+            raise PermissionDenied("Candidate camera visibility consent is required.")
+        if data.get("tab_id") and interview.active_tab != data["tab_id"]:
+            raise Conflict("This interview is active in another tab.")
+        if data["screen"] and not interview.screen_share_consent_at:
+            raise PermissionDenied("Screen-share consent is required before joining with a shared screen.")
+        token_role = "candidate"
+        allow_screen = bool(interview.screen_share_consent_at)
+    elif recruiter_can_monitor(request.user, interview.invitation.drive):
+        token_role = "recruiter"
+        allow_screen = False
+    else:
+        raise NotFound("This live interview is unavailable.")
+    token, room = issue_token(interview, request.user, token_role, allow_screen)
+    audit(request, "live_monitor_token_issued", interview.pk)
+    return Response({"url": os.environ["LIVEKIT_URL"], "token": token, "room": room})
 
 
 @endpoint(["GET"])

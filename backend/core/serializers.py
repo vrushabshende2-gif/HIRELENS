@@ -220,6 +220,7 @@ class StartInput(StrictSerializer):
     token = serializers.CharField(max_length=200)
     tab_id = serializers.UUIDField()
     consent = serializers.BooleanField()
+    monitoring_consent = serializers.BooleanField(default=False)
     demo_acknowledged = serializers.BooleanField(default=False)
 
 
@@ -238,6 +239,17 @@ class TabInput(StrictSerializer):
 
 class LiveTokenInput(StrictSerializer):
     tab_id = serializers.UUIDField()
+
+
+class MonitoringConsentInput(StrictSerializer):
+    tab_id = serializers.UUIDField()
+    camera = serializers.BooleanField()
+    screen = serializers.BooleanField(default=False)
+
+
+class LiveMonitorTokenInput(StrictSerializer):
+    tab_id = serializers.UUIDField(required=False)
+    screen = serializers.BooleanField(default=False)
 
 
 class ReviewInput(StrictSerializer):

@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState } from "react";
+import { Room, RoomEvent, Track } from "livekit-client";
 import {
   Captions,
   CircleStop,
   Mic,
   MicOff,
+  Share2,
   RefreshCw,
   ScanLine,
   ShieldCheck,
@@ -14,7 +16,7 @@ import {
   VideoOff,
   Volume2,
 } from "lucide-react";
-import { ApiError } from "../api";
+import { ApiError, send } from "../api";
 import LensArtwork from "./LensArtwork";
 import { Badge, Button, ErrorBox } from "../ui";
 
@@ -40,6 +42,8 @@ type Props = {
   onQuestionReady?: () => void;
   onTranscript: (value: string) => void;
   onFinalAnswer: (value: string) => void;
+  monitoringConsented?: boolean;
+  monitoringAvailable?: boolean;
 };
 
 type RoomState =
@@ -146,9 +150,13 @@ export default function LiveInterviewRoom({
   onQuestionReady,
   onTranscript,
   onFinalAnswer,
+  monitoringConsented = false,
+  monitoringAvailable = false,
 }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const socketRef = useRef<WebSocket | null>(null);
+  const monitorRoomRef = useRef<Room | null>(null);
+  const screenTrackRef = useRef<MediaStreamTrack | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const audioRef = useRef<AudioContext | null>(null);
   const processorRef = useRef<ScriptProcessorNode | null>(null);
@@ -185,6 +193,8 @@ export default function LiveInterviewRoom({
   const [transcript, setTranscript] = useState("");
   const [cameraOn, setCameraOn] = useState(false);
   const [micMuted, setMicMuted] = useState(false);
+  const [monitorState, setMonitorState] = useState<"off" | "connecting" | "live" | "unavailable">("off");
+  const [screenSharing, setScreenSharing] = useState(false);
   const [typedAnswer, setTypedAnswer] = useState("");
   const [soundLevel, setSoundLevel] = useState(0);
   const [cameras, setCameras] = useState<MediaDeviceInfo[]>([]);
@@ -381,6 +391,113 @@ export default function LiveInterviewRoom({
     audioRef.current = null;
     socketRef.current?.close();
     socketRef.current = null;
+    const activeScreen = screenTrackRef.current;
+    screenTrackRef.current = null;
+    activeScreen?.stop();
+    monitorRoomRef.current?.disconnect();
+    monitorRoomRef.current = null;
+  }
+
+  async function connectMonitor(
+    stream: MediaStream,
+    includeScreen = false,
+    screenTrack?: MediaStreamTrack,
+    forceReconnect = false,
+  ) {
+    if (!monitoringConsented || !monitoringAvailable) return;
+    if (!forceReconnect && monitorRoomRef.current) return;
+    setMonitorState("connecting");
+    try {
+      const issued = await send<{ url: string; token: string }>(
+        `/interviews/${encodeURIComponent(interviewId)}/monitor-token/`,
+        { tab_id: tabId, screen: includeScreen },
+      );
+      monitorRoomRef.current?.disconnect();
+      const room = new Room({ adaptiveStream: true, dynacast: true });
+      monitorRoomRef.current = room;
+      room.on(RoomEvent.Disconnected, () => {
+        if (monitorRoomRef.current === room) setMonitorState("unavailable");
+      });
+      await room.connect(issued.url, issued.token);
+      const cameraTrack = stream.getVideoTracks()[0];
+      if (cameraTrack?.readyState === "live")
+        await room.localParticipant.publishTrack(cameraTrack, {
+          source: Track.Source.Camera,
+          name: "candidate-camera",
+        });
+      if (includeScreen && screenTrack?.readyState === "live")
+        await room.localParticipant.publishTrack(screenTrack, {
+          source: Track.Source.ScreenShare,
+          name: "candidate-screen",
+        });
+      setMonitorState("live");
+    } catch {
+      monitorRoomRef.current?.disconnect();
+      monitorRoomRef.current = null;
+      setMonitorState("unavailable");
+      throw new Error("Recruiter live video could not connect.");
+    }
+  }
+
+  async function startScreenShare() {
+    if (!monitoringConsented || !monitoringAvailable || screenSharing) return;
+    let display: MediaStream | null = null;
+    try {
+      // Invoke synchronously from the click so the browser's native picker
+      // remains the authority for which screen or window is shared.
+      const selection = navigator.mediaDevices.getDisplayMedia({
+        video: { frameRate: { ideal: 12, max: 20 } },
+        audio: false,
+      });
+      display = await selection;
+      const track = display.getVideoTracks()[0];
+      if (!track) throw new Error("No screen was selected.");
+      await send(`/interviews/${encodeURIComponent(interviewId)}/monitoring-consent/`, {
+        tab_id: tabId,
+        camera: true,
+        screen: true,
+      });
+      screenTrackRef.current = track;
+      track.addEventListener(
+        "ended",
+        () => {
+          if (screenTrackRef.current === track) void stopScreenShare();
+        },
+        { once: true },
+      );
+      await connectMonitor(streamRef.current!, true, track, true);
+      setScreenSharing(true);
+    } catch (cause) {
+      display?.getTracks().forEach((track) => track.stop());
+      if (cause instanceof DOMException && cause.name === "NotAllowedError") return;
+      setError("Screen sharing could not start. Your interview can continue without it.");
+      if (screenTrackRef.current === display?.getVideoTracks()[0])
+        screenTrackRef.current = null;
+      await send(`/interviews/${encodeURIComponent(interviewId)}/monitoring-consent/`, {
+        tab_id: tabId,
+        camera: true,
+        screen: false,
+      }).catch(() => undefined);
+    }
+  }
+
+  async function stopScreenShare() {
+    const track = screenTrackRef.current;
+    screenTrackRef.current = null;
+    setScreenSharing(false);
+    if (track) {
+      const room = monitorRoomRef.current;
+      if (room) await room.localParticipant.unpublishTrack(track).catch(() => undefined);
+      track.stop();
+    }
+    await send(`/interviews/${encodeURIComponent(interviewId)}/monitoring-consent/`, {
+      tab_id: tabId,
+      camera: true,
+      screen: false,
+    }).catch(() => undefined);
+    const stream = streamRef.current;
+    if (stream && monitorRoomRef.current)
+      void connectMonitor(stream, false, undefined, true).catch(() => undefined);
   }
 
   function moveToFallback(message: string) {
@@ -789,6 +906,13 @@ export default function LiveInterviewRoom({
       );
       joinedOnceRef.current = true;
       socketRef.current = socket;
+      if (monitoringConsented && monitoringAvailable) {
+        void connectMonitor(
+          stream,
+          Boolean(screenTrackRef.current),
+          screenTrackRef.current || undefined,
+        ).catch(() => undefined);
+      }
       socket.onopen = () => {
         socket.send(
           JSON.stringify({
@@ -1070,7 +1194,11 @@ export default function LiveInterviewRoom({
             <span>
               <Video size={14} /> You
             </span>
-            <span>Local preview</span>
+            <span>
+              {monitoringAvailable && monitoringConsented && monitorState === "live"
+                ? "Live to recruiter"
+                : "Local preview"}
+            </span>
           </div>
           <div className="candidate-media-controls">
             <button
@@ -1102,6 +1230,41 @@ export default function LiveInterviewRoom({
           speaks.
         </div>
       </article>
+      {monitoringConsented && (
+        <aside className="live-visibility-banner" aria-live="polite">
+          <ShieldCheck size={18} />
+          <div>
+            <strong>
+              {monitoringAvailable
+                ? "Your assigned recruiter can see you live."
+                : "Your camera is local in this session."}
+            </strong>
+            <span>
+              {monitoringAvailable
+                ? monitorState === "live"
+                  ? screenSharing
+                    ? "Camera and selected screen are shared."
+                    : "Camera is shared. Your screen stays private unless you choose to share it."
+                  : monitorState === "connecting"
+                    ? "Connecting your camera to the recruiter…"
+                    : monitorState === "unavailable"
+                      ? "Recruiter video is temporarily unavailable. Your interview continues normally."
+                      : "Camera sharing begins when you join the room. No video is recorded."
+                : "Live video monitoring is not configured here. No camera or screen video is sent."}
+            </span>
+          </div>
+          {monitoringAvailable && state !== "preflight" && state !== "checking" && (
+            <Button
+              variant={screenSharing ? "danger" : "secondary"}
+              onClick={screenSharing ? stopScreenShare : startScreenShare}
+              disabled={!joinedOnceRef.current || disabled}
+            >
+              {screenSharing ? <CircleStop size={15} /> : <Share2 size={15} />}
+              {screenSharing ? "Stop sharing" : "Share screen"}
+            </Button>
+          )}
+        </aside>
+      )}
       {error && <ErrorBox message={error} />}
       {processing ? (
         <div className="panel processing-panel" role="status" aria-live="polite">
@@ -1213,8 +1376,9 @@ export default function LiveInterviewRoom({
               <span className="eyebrow">LIVE ROOM CHECK</span>
               <h3>Set up before you join.</h3>
               <p>
-                Your camera is a local preview. Only live microphone audio is
-                streamed to Gemini for transcription; no media is recorded.
+                {monitoringAvailable && monitoringConsented
+                  ? "Your camera stays local until you join, then streams to authorized recruiters as you agreed."
+                  : "Live recruiter video is unavailable here, so your camera remains a local preview."} Live microphone audio goes to Gemini for transcription; media is not recorded.
               </p>
             </div>
             <span className={network.online ? "network-ok" : "network-offline"}>

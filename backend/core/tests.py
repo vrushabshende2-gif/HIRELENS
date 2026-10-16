@@ -1,6 +1,7 @@
 import os
 import secrets
 import uuid
+import json
 from datetime import timedelta
 from unittest.mock import patch
 from django.core import mail
@@ -185,6 +186,7 @@ class HireLensTests(TestCase):
                     "token": token,
                     "tab_id": str(self.tab),
                     "consent": True,
+                    "monitoring_consent": True,
                     "demo_acknowledged": True,
                 },
             )
@@ -479,6 +481,7 @@ class HireLensTests(TestCase):
             "token": token,
             "tab_id": str(uuid.uuid4()),
             "consent": True,
+            "monitoring_consent": True,
             "demo_acknowledged": True,
         }
         self.assertEqual(self.post("/api/interviews/start/", payload).status_code, 403)
@@ -507,6 +510,7 @@ class HireLensTests(TestCase):
                     "token": token,
                     "tab_id": str(self.tab),
                     "consent": True,
+                    "monitoring_consent": True,
                     "demo_acknowledged": True,
                 },
             )
@@ -522,6 +526,7 @@ class HireLensTests(TestCase):
                     "token": token,
                     "tab_id": str(self.tab),
                     "consent": True,
+                    "monitoring_consent": True,
                     "demo_acknowledged": True,
                 },
             )
@@ -530,6 +535,21 @@ class HireLensTests(TestCase):
         self.assertEqual(response.data["id"], str(interview.pk))
         invitation.refresh_from_db()
         self.assertIsNotNone(invitation.redeemed_at)
+
+    def test_candidate_must_accept_live_camera_notice_before_starting(self):
+        self.login(self.candidate)
+        invite, token = self.invite()
+        response = self.post(
+            "/api/interviews/start/",
+            {
+                "token": token,
+                "tab_id": str(uuid.uuid4()),
+                "consent": True,
+                "demo_acknowledged": True,
+            },
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(Interview.objects.filter(invitation=invite).exists())
 
     def test_live_token_is_constrained_to_the_active_candidate_turn(self):
         from types import SimpleNamespace
@@ -572,6 +592,88 @@ class HireLensTests(TestCase):
         headers = self.client.get("/api/interviews/").headers
         self.assertIn("camera=(self)", headers["Permissions-Policy"])
         self.assertIn("wss://generativelanguage.googleapis.com", headers["Content-Security-Policy"])
+
+    def test_live_monitoring_consent_tokens_and_drive_scope(self):
+        interview = self.start()
+        with patch.dict(
+            os.environ,
+            {
+                "LIVEKIT_URL": "wss://rtc.test.example",
+                "LIVEKIT_API_KEY": "test-livekit-key",
+                "LIVEKIT_API_SECRET": "not-a-real-livekit-secret",
+            },
+        ):
+            camera = self.post(
+                f"/api/interviews/{interview.pk}/monitor-token/",
+                {"tab_id": str(self.tab)},
+            )
+            self.assertEqual(camera.status_code, 200, camera.data)
+            self.assertEqual(camera.data["url"], "wss://rtc.test.example")
+            claims = json.loads(
+                __import__("base64").urlsafe_b64decode(
+                    camera.data["token"].split(".")[1] + "=="
+                )
+            )
+            self.assertEqual(claims["video"]["canPublishSources"], ["camera"])
+            self.assertFalse(claims["video"]["canSubscribe"])
+            self.assertNotIn("not-a-real-livekit-secret", str(camera.data))
+
+            rejected_screen = self.post(
+                f"/api/interviews/{interview.pk}/monitor-token/",
+                {"tab_id": str(self.tab), "screen": True},
+            )
+            self.assertEqual(rejected_screen.status_code, 403)
+            consent = self.post(
+                f"/api/interviews/{interview.pk}/monitoring-consent/",
+                {"tab_id": str(self.tab), "camera": True, "screen": True},
+            )
+            self.assertEqual(consent.status_code, 200, consent.data)
+            screen = self.post(
+                f"/api/interviews/{interview.pk}/monitor-token/",
+                {"tab_id": str(self.tab), "screen": True},
+            )
+            self.assertEqual(screen.status_code, 200, screen.data)
+            screen_claims = json.loads(
+                __import__("base64").urlsafe_b64decode(
+                    screen.data["token"].split(".")[1] + "=="
+                )
+            )
+            self.assertEqual(
+                screen_claims["video"]["canPublishSources"],
+                ["camera", "screen_share"],
+            )
+
+            self.login(self.recruiter)
+            monitor = self.client.get(f"/api/drives/{self.drive.pk}/live/")
+            self.assertEqual(monitor.status_code, 200, monitor.data)
+            self.assertEqual(monitor.data["live_media_available"], True)
+            row = monitor.data["candidates"][0]
+            self.assertEqual(row["interview_id"], str(interview.pk))
+            self.assertTrue(row["camera_consented"])
+            self.assertTrue(row["screen_consented"])
+            self.assertNotIn("expected_answer", str(monitor.data))
+            self.assertNotIn("rubric", str(monitor.data).lower())
+            recruiter_token = self.post(
+                f"/api/interviews/{interview.pk}/monitor-token/", {}
+            )
+            self.assertEqual(recruiter_token.status_code, 200, recruiter_token.data)
+            recruiter_claims = json.loads(
+                __import__("base64").urlsafe_b64decode(
+                    recruiter_token.data["token"].split(".")[1] + "=="
+                )
+            )
+            self.assertTrue(recruiter_claims["video"]["canSubscribe"])
+            self.assertFalse(recruiter_claims["video"]["canPublish"])
+
+            self.login(self.other)
+            self.assertEqual(
+                self.client.get(f"/api/drives/{self.drive.pk}/live/").status_code,
+                404,
+            )
+            self.assertEqual(
+                self.post(f"/api/interviews/{interview.pk}/monitor-token/", {}).status_code,
+                404,
+            )
 
     def test_submission_idempotency_no_score_leak_and_tab_integrity(self):
         interview = self.start()

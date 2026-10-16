@@ -123,9 +123,10 @@ try {
   await page
     .getByLabel("Drive name", { exact: true })
     .fill("Browser verification drive");
+  await page.getByRole("button", { name: "Choose a position" }).click();
   await page
-    .getByLabel("Position", { exact: true })
-    .selectOption({ label: "Browser verification role" });
+    .getByRole("option", { name: "Browser verification role" })
+    .click();
   await page.getByLabel("Question count", { exact: true }).fill("3");
   await page.getByRole("button", { name: "Create draft drive" }).click();
   await page
@@ -169,8 +170,9 @@ try {
   await candidate
     .getByRole("heading", { name: "Backend Engineer — Node.js" })
     .waitFor();
-  await candidate.getByRole("checkbox").nth(0).check();
-  await candidate.getByRole("checkbox").nth(1).check();
+  const inviteChecks = candidate.getByRole("checkbox");
+  for (let i = 0; i < await inviteChecks.count(); i++)
+    await inviteChecks.nth(i).check();
   await candidate.getByRole("button", { name: "I’m ready to begin" }).click();
   await candidate.waitForURL(/\/interview\//);
   for (let i = 1; i <= 12; i++) {
@@ -202,7 +204,7 @@ try {
         .click();
       const outcome = await Promise.race([
         candidate
-          .getByText("Typed accessibility response", { exact: true })
+          .locator(".live-typed-fallback textarea")
           .waitFor({ timeout: 15000 })
           .then(() => "typed"),
         candidate

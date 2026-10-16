@@ -11,6 +11,7 @@ import {
   BriefcaseBusiness,
   Library,
   Radio,
+  Video,
   UsersRound,
   ChartNoAxesCombined,
   LogOut,
@@ -30,6 +31,7 @@ import WorkspaceSearch from "./components/WorkspaceSearch";
 const links = [
   { to: "/", label: "Overview", icon: LayoutDashboard },
   { to: "/drives", label: "Interview drives", icon: Radio },
+  { to: "/live-monitor", label: "Live Monitor", icon: Video },
   { to: "/candidates", label: "Candidates", icon: UsersRound },
   { to: "/analytics", label: "Analytics", icon: ChartNoAxesCombined },
 ];

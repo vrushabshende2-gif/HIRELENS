@@ -1,6 +1,7 @@
 import hashlib
 import hmac
 import logging
+import os
 from datetime import timedelta
 from functools import wraps
 from django.conf import settings
@@ -108,11 +109,20 @@ class SecurityHeadersMiddleware:
     def __call__(self, request):
         response = self.get_response(request)
         response["X-Frame-Options"] = "DENY"
-        response["Permissions-Policy"] = "camera=(self), microphone=(self), geolocation=()"
+        response["Permissions-Policy"] = "camera=(self), microphone=(self), display-capture=(self), geolocation=()"
         live_origin = settings.PUBLIC_URL.replace("https://", "wss://").replace(
             "http://", "ws://"
         )
         connect_sources = ["'self'", live_origin, "wss://generativelanguage.googleapis.com"]
+        livekit_url = os.getenv("LIVEKIT_URL", "").strip()
+        if livekit_url:
+            from urllib.parse import urlparse
+
+            livekit_origin = urlparse(livekit_url)
+            if livekit_origin.scheme in {"wss", "https"} and livekit_origin.netloc:
+                connect_sources.append(
+                    f"{livekit_origin.scheme}://{livekit_origin.netloc}"
+                )
         if settings.DEBUG:
             connect_sources.extend(
                 ["ws://localhost:5173", "ws://127.0.0.1:5173"]

@@ -207,6 +207,9 @@ export interface InterviewState {
   budget_seconds: number;
   instructions: string;
   stop_reason: string;
+  monitoring_consent: boolean;
+  screen_share_consent: boolean;
+  live_monitoring_available: boolean;
   processing: boolean;
   processing_error: string;
   processing_failed?: boolean;

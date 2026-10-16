@@ -126,7 +126,7 @@ def main():
             assert report.narrative_status == "complete"
             assert report.interview.attempts.count() == 12
             assert all(
-                a.evaluation.model == "gemini-2.5-flash-lite"
+                a.evaluation.model == os.getenv("GEMINI_MODEL", "gemini-3.5-flash-lite")
                 for a in report.interview.attempts.all()
             )
             print(

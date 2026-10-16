@@ -2,6 +2,7 @@ import os
 import secrets
 import uuid
 from collections import Counter
+from datetime import timedelta
 from django.conf import settings
 from django.db import transaction, IntegrityError
 from django.db.models import BooleanField, Case, Count, Value, When
@@ -21,6 +22,7 @@ from .models import (
     ReviewDecision,
     OrganizationMembership,
     User,
+    Interview,
 )
 from .serializers import (
     PositionInput,
@@ -484,6 +486,95 @@ def close_drive(request, pk):
     drive.save(update_fields=["status"])
     audit(request, "drive_closed", drive.pk)
     return Response({"detail": "Drive closed to new interviews. Active candidates can finish."})
+
+
+@endpoint(["GET"], recruiter=True)
+def live_monitor(request, pk):
+    """Return live-safe progress and provisional scores for one owned drive."""
+    organization = org(request)
+    drive = get_object_or_404(
+        Drive.objects.select_related("organization", "position"),
+        pk=pk,
+        organization=organization,
+    )
+    if workspace_role(request, organization) not in {"owner", "admin", "recruiter"}:
+        raise PermissionDenied("You do not have live-monitor access to this workspace.")
+    now = timezone.now()
+    invitations = list(
+        drive.invitations.select_related("interview__candidate")
+        .prefetch_related("interview__attempts__evaluation")
+        .order_by("created_at")
+    )
+    rows = []
+    for invitation in invitations:
+        interview = getattr(invitation, "interview", None)
+        attempts = list(interview.attempts.all()) if interview else []
+        current = attempts[-1] if attempts else None
+        evaluated = [attempt for attempt in attempts if hasattr(attempt, "evaluation")]
+        completed = len(evaluated)
+        scores = [attempt.evaluation.score for attempt in evaluated]
+        score = sum(scores) / len(scores) if scores else None
+        status = interview.status if interview else "invited"
+        if (
+            interview
+            and status == "in_progress"
+            and (
+                not interview.tab_seen_at
+                or interview.tab_seen_at < now - timedelta(seconds=90)
+            )
+        ):
+            status = "disconnected"
+        processing = bool(
+            current and current.submitted_at and not hasattr(current, "evaluation")
+        )
+        elapsed = interview.answering_seconds if interview else 0
+        remaining = 0
+        if interview and interview.status == "in_progress":
+            budget = drive.duration_minutes * 60 * invitation.accommodation_multiplier
+            if current and not current.submitted_at:
+                elapsed += max(0, (now - current.issued_at).total_seconds())
+            remaining = max(0, int(budget - elapsed))
+        rows.append(
+            {
+                "invitation_id": str(invitation.pk),
+                "interview_id": str(interview.pk) if interview else None,
+                "candidate_name": invitation.name,
+                "candidate_email": invitation.email,
+                "status": status,
+                "question_count": drive.question_count,
+                "completed_questions": completed,
+                "current_question": (
+                    {
+                        "ordinal": current.ordinal,
+                        "title": current.question.get("title", "Current question"),
+                        "topic": current.question.get("topic", ""),
+                    }
+                    if current and not current.submitted_at
+                    else None
+                ),
+                "evaluation_pending": processing,
+                "provisional_score": round(score, 1) if score is not None else None,
+                "time_remaining_seconds": remaining,
+                "camera_consented": bool(
+                    interview and interview.monitoring_consent_at
+                ),
+                "screen_consented": bool(
+                    interview and interview.screen_share_consent_at
+                ),
+            }
+        )
+    from .live_monitor import livekit_configured
+
+    return Response(
+        {
+            "drive_id": str(drive.pk),
+            "drive_name": drive.name,
+            "position": drive.position.title,
+            "live_media_available": livekit_configured(),
+            "refreshed_at": now,
+            "candidates": rows,
+        }
+    )
 
 
 @endpoint(["POST"], recruiter=True)

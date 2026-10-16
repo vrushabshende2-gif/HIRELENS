@@ -23,6 +23,7 @@ const DriveDetail = lazy(() =>
 );
 const Candidates = lazy(() => import("./pages/Candidates"));
 const Analytics = lazy(() => import("./pages/Analytics"));
+const LiveMonitor = lazy(() => import("./pages/LiveMonitor"));
 const Report = lazy(() => import("./pages/Report"));
 const Interview = lazy(() => import("./pages/Interview"));
 const InvitePage = lazy(() =>
@@ -94,6 +95,8 @@ function App() {
                     <Route path="questions" element={<Questions />} />
                     <Route path="drives" element={<Drives />} />
                     <Route path="drives/:id" element={<DriveDetail />} />
+                    <Route path="drives/:id/live" element={<LiveMonitor />} />
+                    <Route path="live-monitor" element={<LiveMonitor />} />
                     <Route path="candidates" element={<Candidates />} />
                     <Route path="analytics" element={<Analytics />} />
                     <Route path="reports/:id" element={<Report />} />

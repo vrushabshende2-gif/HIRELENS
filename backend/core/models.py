@@ -159,6 +159,8 @@ class Interview(Record):
     tab_seen_at = models.DateTimeField(null=True)
     stop_reason = models.CharField(max_length=40, blank=True)
     integrity_events = models.PositiveIntegerField(default=0)
+    monitoring_consent_at = models.DateTimeField(null=True, blank=True)
+    screen_share_consent_at = models.DateTimeField(null=True, blank=True)
 
 
 class Attempt(Record):

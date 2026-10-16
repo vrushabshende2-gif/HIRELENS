@@ -4071,3 +4071,67 @@ select {
     scroll-behavior: auto !important;
   }
 }
+
+.live-monitor-page { display: grid; gap: 22px; }
+.monitor-drive-picker { display: grid; gap: 8px; max-width: 520px; color: var(--muted); font-size: 12px; font-weight: 650; }
+.monitor-drive-picker select { min-height: 44px; padding: 0 13px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); color: inherit; }
+.monitor-config-notice { display: flex; align-items: flex-start; gap: 10px; }
+.monitor-overview-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+.monitor-overview-stats article { display: grid; grid-template-columns: 40px 1fr; grid-template-rows: auto auto; align-items: center; gap: 1px 12px; padding: 18px; border: 1px solid var(--line); border-radius: 16px; background: var(--surface); }
+.monitor-stat-icon { grid-row: span 2; display: grid; place-items: center; width: 40px; height: 40px; border-radius: 13px; color: var(--green); background: color-mix(in srgb, var(--green) 10%, white); }
+.monitor-overview-stats strong { font-size: 24px; line-height: 1.1; }
+.monitor-overview-stats small { color: var(--muted); font-size: 12px; }
+.monitor-section-heading { display: flex; align-items: end; justify-content: space-between; gap: 16px; }
+.monitor-section-heading h2 { margin: 5px 0 0; font-size: 22px; }
+.monitor-refresh-caption { color: var(--muted); font-size: 12px; }
+.monitor-layout { display: grid; grid-template-columns: minmax(240px, 0.75fr) minmax(0, 1.25fr); align-items: start; gap: 16px; }
+.monitor-candidate-list { display: grid; gap: 7px; max-height: 720px; overflow: auto; padding: 7px; border: 1px solid var(--line); border-radius: 16px; background: var(--surface); }
+.monitor-list-row { display: flex; align-items: center; gap: 10px; min-width: 0; padding: 12px; border: 1px solid transparent; border-radius: 12px; color: inherit; background: transparent; text-align: left; }
+.monitor-list-row:hover, .monitor-list-row.selected { border-color: var(--line); background: var(--cream); }
+.monitor-row-indicator { flex: 0 0 auto; width: 8px; height: 8px; border-radius: 50%; background: #a4a8b1; }
+.monitor-row-indicator.in_progress { background: #19a16f; box-shadow: 0 0 0 4px #19a16f1a; }
+.monitor-row-main { display: grid; flex: 1; gap: 3px; min-width: 0; }
+.monitor-row-main strong, .monitor-row-main small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.monitor-row-main small { color: var(--muted); font-size: 10px; }
+.monitor-row-score { color: var(--muted); font-size: 12px; font-weight: 700; }
+.monitor-candidate-card { min-width: 0; padding: 16px; border: 1px solid var(--line); border-radius: 18px; background: var(--surface); box-shadow: var(--shadow); }
+.monitor-candidate-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
+.monitor-candidate-heading > div { min-width: 0; display: grid; gap: 3px; }
+.monitor-candidate-heading strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.monitor-candidate-heading small { color: var(--muted); }
+.monitor-media-grid { display: grid; grid-template-columns: 1fr; gap: 8px; }
+.monitor-media-grid.has-screen { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.monitor-video-frame { position: relative; min-width: 0; aspect-ratio: 16 / 10; overflow: hidden; border-radius: 12px; background: #171a21; }
+.monitor-video-frame video { display: block; width: 100%; height: 100%; object-fit: cover; }
+.monitor-screen-frame video { object-fit: contain; }
+.monitor-media-placeholder { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; padding: 18px; color: #d7d9e1; text-align: center; font-size: 12px; }
+.monitor-video-label { position: absolute; left: 9px; bottom: 9px; display: inline-flex; align-items: center; gap: 6px; padding: 5px 8px; border-radius: 7px; background: #111827bd; color: white; font-size: 10px; }
+.monitor-candidate-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 13px; }
+.monitor-candidate-stats > div { display: grid; gap: 3px; padding: 10px; border-radius: 10px; background: var(--cream); }
+.monitor-candidate-stats span { color: var(--muted); font-size: 10px; }
+.monitor-candidate-stats strong { font-size: 15px; }
+.monitor-question-note { margin: 12px 1px 0; color: var(--muted); font-size: 12px; line-height: 1.5; }
+.monitor-privacy-note { display: flex; align-items: flex-start; gap: 10px; padding: 14px 16px; border: 1px solid var(--line); border-radius: 14px; color: var(--muted); background: var(--surface); }
+.monitor-privacy-note svg { flex: 0 0 auto; color: var(--green); }
+.monitor-privacy-note p { margin: 0; font-size: 12px; line-height: 1.6; }
+.monitoring-consent-gate { display: grid; justify-items: start; gap: 12px; max-width: 720px; margin: 24px auto; padding: clamp(24px, 5vw, 44px); }
+.monitoring-consent-gate > svg { color: var(--green); }
+.monitoring-consent-gate h2 { margin: 0; }
+.monitoring-consent-gate p { max-width: 62ch; margin: 0 0 8px; color: var(--muted); line-height: 1.7; }
+.live-visibility-banner { display: flex; align-items: center; gap: 12px; margin: 12px 0; padding: 12px 14px; border: 1px solid var(--line); border-radius: 13px; background: var(--surface); }
+.live-visibility-banner > svg { flex: 0 0 auto; color: var(--green); }
+.live-visibility-banner > div { display: grid; flex: 1; gap: 3px; min-width: 0; }
+.live-visibility-banner strong { font-size: 12px; }
+.live-visibility-banner span { color: var(--muted); font-size: 11px; line-height: 1.5; }
+.live-visibility-banner .button { flex: 0 0 auto; }
+@media (max-width: 680px) {
+  .monitor-overview-stats { grid-template-columns: 1fr; }
+  .monitor-overview-stats article { padding: 14px; }
+  .monitor-candidate-card { padding: 12px; }
+  .monitor-layout { grid-template-columns: minmax(0, 1fr); }
+  .monitor-candidate-list { max-height: 300px; }
+  .monitor-media-grid.has-screen { grid-template-columns: 1fr; }
+  .monitor-section-heading { align-items: flex-start; flex-direction: column; }
+  .live-visibility-banner { align-items: flex-start; flex-wrap: wrap; }
+  .live-visibility-banner .button { margin-left: 29px; }
+}

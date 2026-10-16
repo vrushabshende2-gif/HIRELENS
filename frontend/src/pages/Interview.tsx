@@ -38,6 +38,7 @@ interface InviteInfo {
   redeemed: boolean;
   demo_data: boolean;
   ai_ready: boolean;
+  live_monitoring_available: boolean;
   skills: string[];
 }
 function CandidateHeader() {
@@ -96,6 +97,7 @@ export function InvitePage() {
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false),
     [consent, setConsent] = useState(false),
+    [monitoringConsent, setMonitoringConsent] = useState(false),
     [demo, setDemo] = useState(false);
   useEffect(() => {
     if (!token) {
@@ -116,6 +118,7 @@ export function InvitePage() {
         token,
         tab_id: TAB_ID,
         consent,
+        monitoring_consent: monitoringConsent,
         demo_acknowledged: demo,
       });
       navigate(`/interview/${result.id}`);
@@ -188,8 +191,9 @@ export function InvitePage() {
                   </li>
                   <li>
                     <CheckCircle2 size={16} />
-                    Your camera is a local preview. HireLens does not record or
-                    retain camera or microphone media.
+                    {info.live_monitoring_available
+                      ? "Assigned recruiters can view your camera live during this interview. Camera and screen media are streamed live, not recorded or retained. Screen sharing is optional and only starts if you choose a screen in your browser."
+                      : "Live recruiter video is not currently available for this deployment. Your camera stays a local preview; media is not recorded or retained."}
                   </li>
                   <li>
                     <CheckCircle2 size={16} />
@@ -197,7 +201,7 @@ export function InvitePage() {
                   </li>
                   <li>
                     <CheckCircle2 size={16} />
-                    Your recruiter receives the results after submission.
+                    Your recruiter can monitor interview progress and provisional scores; the final report is available after submission.
                   </li>
                 </ul>
                 <div className="skill-tags">
@@ -236,6 +240,16 @@ export function InvitePage() {
                       understand HireLens stores the final transcript, not a
                       recording.
                     </label>
+                    <label className="checkbox-label">
+                      <input
+                        type="checkbox"
+                        checked={monitoringConsent}
+                        onChange={(e) => setMonitoringConsent(e.target.checked)}
+                      />
+                      {info.live_monitoring_available
+                        ? "I understand the assigned recruiter can see my live camera during this interview. My screen is shared only if I choose to share it."
+                        : "I understand the live camera visibility policy. Live video is currently unavailable here, so my camera remains local."}
+                    </label>
                     {info.demo_data && (
                       <label className="checkbox-label demo-consent">
                         <input
@@ -261,6 +275,7 @@ export function InvitePage() {
                       disabled={
                         busy ||
                         !consent ||
+                        !monitoringConsent ||
                         (info.demo_data && !demo) ||
                         (!info.ai_ready && !info.redeemed)
                       }
@@ -373,7 +388,7 @@ export function MyInterviews() {
           {!data && !error && <Loading />}
           {data && !data.interviews.length && !data.invitations.length && <section className="panel candidate-empty-panel"><Empty title="Your next opportunity will appear here" description="When a recruiter sends you an invitation, this is where you’ll find the details and next step." action={<Link className="button secondary" to="/candidate-workspace">Complete your profile</Link>} /></section>}
         </div>
-        <section className="candidate-privacy-strip"><ShieldCheck size={20} /><div><strong>Your interview space is private by design.</strong><p>HireLens stores final transcripts and timing metadata. Camera and microphone media are never recorded.</p></div><Link to="/candidate-workspace">Privacy center <ArrowUpRight size={14} /></Link></section>
+        <section className="candidate-privacy-strip"><ShieldCheck size={20} /><div><strong>Your interview space is private by design.</strong><p>With your consent, authorized recruiters can view your camera live. Screen sharing is optional. HireLens stores transcripts and timing metadata, not camera or screen recordings.</p></div><Link to="/candidate-workspace">Privacy center <ArrowUpRight size={14} /></Link></section>
       </main>
     </div>
   );
@@ -387,6 +402,7 @@ export default function Interview() {
     [saving, setSaving] = useState("saved"),
     [saveRetry, setSaveRetry] = useState(0),
     [submitting, setSubmitting] = useState(false),
+    [monitorConsentBusy, setMonitorConsentBusy] = useState(false),
     [codeBriefedAttempt, setCodeBriefedAttempt] = useState(""),
     [instructions, setInstructions] = useState(false),
     [confirm, setConfirm] = useState(false),
@@ -560,6 +576,23 @@ export default function Interview() {
       setError((e as Error).message);
     }
   }
+  async function acceptLiveCamera() {
+    if (!id || monitorConsentBusy) return;
+    setMonitorConsentBusy(true);
+    setError("");
+    try {
+      await send(`/interviews/${id}/monitoring-consent/`, {
+        tab_id: TAB_ID,
+        camera: true,
+        screen: false,
+      });
+      await refresh();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setMonitorConsentBusy(false);
+    }
+  }
   if (!data)
     return (
       <div className="candidate-page">
@@ -611,7 +644,7 @@ export default function Interview() {
         <div>
           <span className="eyebrow">TECHNICAL INTERVIEW</span>
           <h1>{data.position}</h1>
-          <div className="interview-session-meta"><span><ShieldCheck size={13} /> Private session</span><span><CircleHelp size={13} /> Need help? Open instructions</span></div>
+          <div className="interview-session-meta"><span><ShieldCheck size={13} />{data.live_monitoring_available && data.monitoring_consent ? " Recruiter can view your camera live" : " Camera remains local"}</span><span><CircleHelp size={13} /> Need help? Open instructions</span></div>
         </div>
         <button className="button ghost" onClick={() => setInstructions(true)}>
           <BookOpen size={16} />
@@ -690,11 +723,31 @@ export default function Interview() {
               </Button>
             </div>
           ) : roomAttempt ? (
+            data.live_monitoring_available && !data.monitoring_consent ? (
+              <section className="panel monitoring-consent-gate">
+                <ShieldCheck size={30} />
+                <span className="eyebrow">LIVE CAMERA NOTICE</span>
+                <h2>Your recruiter can view your camera live.</h2>
+                <p>
+                  Your camera stream is visible to authorized recruiters for
+                  this drive while your interview is active. HireLens does not
+                  record or retain camera video. Screen sharing is optional and
+                  starts only after you choose a screen in your browser.
+                </p>
+                <Button onClick={acceptLiveCamera} disabled={monitorConsentBusy}>
+                  {monitorConsentBusy
+                    ? "Saving your choice…"
+                    : "I understand — continue with live camera"}
+                </Button>
+              </section>
+            ) : (
             <>
               <LiveInterviewRoom
                 interviewId={id || ""}
                 tabId={TAB_ID}
                 attempt={roomAttempt}
+                monitoringConsented={data.monitoring_consent}
+                monitoringAvailable={data.live_monitoring_available}
                 disabled={submitting || data.processing}
                 processing={data.processing}
                 processingFailed={data.processing_failed}
@@ -776,6 +829,7 @@ export default function Interview() {
               </div>
                 )}
             </>
+            )
           ) : (
             <Loading />
           )}

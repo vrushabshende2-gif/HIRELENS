@@ -14,9 +14,14 @@ flowchart LR
   S --> DB
   DB --> API
   API -->|owned reports / PDF / CSV| R
+  C -->|consented camera + candidate-selected screen| SFU[LiveKit SFU]
+  R -->|short-lived read-only token| SFU
+  SFU -->|live video only| R
 ```
 
-React renders data and collects answers. For spoken answers, the candidate's browser obtains a one-use, short-lived, server-constrained Gemini Live token and sends microphone PCM directly to Gemini; the browser never receives the long-lived API key. The approved prompt and interviewer instruction are locked into the token, while the same approved prompt remains visible in the browser. Django owns authorization, question selection, timing, quotas, and scores. Browsers never receive expected answers, rubrics, or interim scores in candidate responses. Gemini output is untrusted and cannot directly select questions, write database rows, or invoke tools. Candidate code is parsed, never executed.
+React renders data and collects answers. For spoken answers, the candidate's browser obtains a one-use, short-lived, server-constrained Gemini Live token and sends microphone PCM through the authenticated HireLens WebSocket relay; the browser never receives the long-lived API key. The approved prompt and interviewer instruction are locked into the token, while the same approved prompt remains visible in the browser. Django owns authorization, question selection, timing, quotas, and scores. Browsers never receive expected answers, rubrics, or internal scores in candidate responses. Gemini output is untrusted and cannot directly select questions, write database rows, or invoke tools. Candidate code is parsed, never executed.
+
+Recruiter live monitoring is a separate WebRTC path. The candidate must accept a camera-visibility notice before starting; a screen is published only after a separate user action, the browser's native screen picker, and a recorded consent update. Django issues short-lived room tokens scoped to one interview. Candidate tokens publish camera/screen video only; recruiter tokens subscribe only. LiveKit relays streams but HireLens does not record or retain them. If LiveKit is unavailable, the interview and answer pipeline continue without remote video. Live Monitor exposes status, timer, current question metadata, and a clearly provisional mean of completed question evaluations.
 
 One web service serves the compiled frontend and authenticated API on the same origin. A supervised worker uses the database as a durable job queue, avoiding a paid broker or separate worker service. Jobs have five-minute leases, retries, and ownership tokens. Evaluation writes and next-question creation happen in a transaction; duplicate submissions cannot create duplicate evaluations. PostgreSQL workers use row locking with `skip_locked`. SQLite uses immediate transactions for local development.
 
@@ -32,7 +37,7 @@ Provider requests occur outside database transactions. A failed model response l
 | Question | Text/code prompt, expected answer, weighted concepts, critical misconceptions, reasoning rubric, code structure checks, version. |
 | Drive | Position, opening/expiry, question count, time budget, instructions. Publishing freezes the question pool and role policy. |
 | Invitation | One drive/email pair, high-entropy token digest, expiry, redemption, accommodation multiplier. |
-| Interview | One invitation/candidate, ability distributions, active-tab identity, answering time, completion reason. |
+| Interview | One invitation/candidate, ability distributions, active-tab identity, answering time, completion reason, camera-monitoring consent and optional screen-share consent timestamps. |
 | Attempt | Ordered immutable question snapshot, draft, final answer, issued/submitted times, adaptive selection reason, clarification count, and idempotency ID. |
 | Evaluation | One per attempt: score components, evidence offsets, model, rubric version, confidence and flags. |
 | Report | One per interview: weighted aggregate, topic results, recommendation, narrative status, grounded insights. |
