@@ -175,6 +175,44 @@ try {
     await inviteChecks.nth(i).check();
   await candidate.getByRole("button", { name: "I’m ready to begin" }).click();
   await candidate.waitForURL(/\/interview\//);
+  // Check the recruiter live-monitor route while the candidate is actually in
+  // progress. This catches failures in both the page shell and its scoped API.
+  const activeCandidate = await page.evaluate(async (email) => {
+    const response = await fetch("/api/candidates/");
+    const candidates = await response.json();
+    return candidates.find(
+      (candidate) => candidate.email === email && candidate.status === "in_progress",
+    );
+  }, access.candidate.email);
+  assert.ok(activeCandidate?.drive_id, "Candidate should have an active drive");
+  const liveMonitorResponse = page.waitForResponse((response) =>
+    response.url().includes("/api/drives/") &&
+      response.url().endsWith("/live/")
+  );
+  await page.goto(base + "/live-monitor");
+  const monitorResponse = await liveMonitorResponse;
+  assert.equal(monitorResponse.status(), 200, "Live-monitor API must load");
+  assert.ok(
+    monitorResponse.url().includes(`/api/drives/${activeCandidate.drive_id}/live/`),
+    "Live Monitor should default to the drive with the active candidate",
+  );
+  const monitorPayload = await monitorResponse.json();
+  assert.ok(Array.isArray(monitorPayload.candidates));
+  assert.ok(
+    monitorPayload.candidates.some(
+      (candidate) => candidate.candidate_email === access.candidate.email &&
+        ["in_progress", "disconnected"].includes(candidate.status),
+    ),
+    "Live monitor should show the active demo candidate",
+  );
+  await page.getByText("ACTIVE ROOMS", { exact: true }).waitFor();
+  await page.getByText("Live video service is not configured", { exact: true }).waitFor();
+  assert.equal(
+    await page.getByRole("alert").count(),
+    0,
+    "Live-monitor route must not render an error state",
+  );
+  await save("live-monitor");
   for (let i = 1; i <= 12; i++) {
     await candidate
       .getByText(new RegExp(`QUESTION ${i}|Question ${i} of 12`, "i"))

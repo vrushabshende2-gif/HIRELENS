@@ -44,7 +44,7 @@ function timeLabel(seconds: number) {
   return `${String(Math.floor(seconds / 60)).padStart(2, "0")}:${String(seconds % 60).padStart(2, "0")}`;
 }
 
-function LiveTile({ candidate }: { candidate: CandidateRow }) {
+function LiveTile({ candidate, liveMediaAvailable }: { candidate: CandidateRow; liveMediaAvailable: boolean }) {
   const cameraRef = useRef<HTMLVideoElement>(null);
   const screenRef = useRef<HTMLVideoElement>(null);
   const [connection, setConnection] = useState("connecting");
@@ -57,8 +57,8 @@ function LiveTile({ candidate }: { candidate: CandidateRow }) {
       if (cameraRef.current) track.detach(cameraRef.current);
       if (screenRef.current) track.detach(screenRef.current);
     };
-    if (!candidate.interview_id || !candidate.camera_consented) {
-      setConnection("camera not shared");
+    if (!candidate.interview_id || !candidate.camera_consented || !liveMediaAvailable) {
+      setConnection(!liveMediaAvailable ? "not configured" : "camera not shared");
       setCameraLive(false);
       setScreenLive(false);
       return;
@@ -106,7 +106,7 @@ function LiveTile({ candidate }: { candidate: CandidateRow }) {
       if (screenRef.current) screenRef.current.srcObject = null;
       room?.disconnect();
     };
-  }, [candidate.interview_id, candidate.camera_consented]);
+  }, [candidate.interview_id, candidate.camera_consented, liveMediaAvailable]);
 
   return (
     <article className="monitor-candidate-card">
@@ -128,7 +128,9 @@ function LiveTile({ candidate }: { candidate: CandidateRow }) {
               <span>
                 {!candidate.camera_consented
                   ? "Camera consent not recorded"
-                  : connection === "unavailable"
+                  : connection === "not configured"
+                    ? "Live video service is not configured"
+                    : connection === "unavailable"
                     ? "Camera connection unavailable"
                     : connection === "reconnecting"
                       ? "Reconnecting camera…"
@@ -176,7 +178,10 @@ export default function LiveMonitor() {
   const [search] = useSearchParams();
   const [selectedInterview, setSelectedInterview] = useState("");
   const { data: overview } = useResource<Overview>("/overview/");
-  const driveId = search.get("drive") || id || overview?.drives.find((drive) => drive.status === "active")?.id || overview?.drives[0]?.id || "";
+  const activeCandidateDrive = overview?.drives.find((drive) =>
+    drive.status === "active" && overview.active_drive_ids.includes(drive.id),
+  );
+  const driveId = search.get("drive") || id || activeCandidateDrive?.id || overview?.drives.find((drive) => drive.status === "active")?.id || overview?.drives[0]?.id || "";
   const { data, error, loading, reload } = useResource<MonitorData>(driveId ? `/drives/${driveId}/live/` : "/health/");
   useEffect(() => {
     const timer = window.setInterval(reload, 5000);
@@ -240,7 +245,7 @@ export default function LiveMonitor() {
               </button>
             ))}
           </div>
-          {selectedCandidate?.interview_id ? <LiveTile candidate={selectedCandidate} /> : <section className="panel"><Empty title="This interview is not active" description="Choose a candidate with an active room to open their live camera and screen status." /></section>}
+          {selectedCandidate?.interview_id ? <LiveTile candidate={selectedCandidate} liveMediaAvailable={data.live_media_available} /> : <section className="panel"><Empty title="This interview is not active" description="Choose a candidate with an active room to open their live camera and screen status." /></section>}
         </section>
       ) : (
         <section className="panel"><Empty title="No candidate is in the interview room" description="Candidates appear here when they start this drive. This view refreshes automatically every few seconds." /></section>

@@ -92,6 +92,7 @@ export interface Overview {
     active_drives: number;
   };
   drives: Drive[];
+  active_drive_ids: string[];
   recent_candidates: Candidate[];
   ai: {
     configured: boolean;

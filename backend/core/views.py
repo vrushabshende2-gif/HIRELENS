@@ -149,6 +149,14 @@ def overview(request):
                 ),
             },
             "drives": [drive_data(d) for d in drives],
+            "active_drive_ids": list(
+                Interview.objects.filter(
+                    invitation__drive__organization=organization,
+                    status="in_progress",
+                )
+                .values_list("invitation__drive_id", flat=True)
+                .distinct()
+            ),
             "recent_candidates": rows[:6],
             "ai": {
                 "configured": configured(),
